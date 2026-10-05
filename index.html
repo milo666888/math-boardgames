@@ -362,12 +362,10 @@ sup { font-size: .6em; line-height: 0; }
 .pc.hint { animation: hint .7s ease-in-out 4; }
 
 /* ---------- 勝者為王 ---------- */
-.gmain.boardgame { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); grid-template-rows: auto auto; gap: 14px; align-items: start; }
-.bhandwrap { grid-column: 1 / -1; display: grid; gap: 8px; padding: 12px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); }
-.bhandwrap.active { border-color: var(--pc); box-shadow: 0 0 0 1px var(--pc); }
-.bhandwrap .bhand-head { align-items: center; gap: 10px; }
-.bhandwrap .bhand-head b { color: var(--text); }
-.bhandwrap .bhand .pc.sm { --w: clamp(56px, 5.4vw, 72px); }
+.gmain.boardgame { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 14px; align-items: start; }
+.bhand-head { align-items: center; gap: 10px; flex-wrap: wrap; }
+.bhand-head b { color: var(--text); }
+.bhand-head .tbar.big { width: 150px; min-width: 110px; flex-basis: 150px; }
 .board-wrap { position: sticky; top: 76px; background: var(--paper); border-radius: 16px; padding: 8px; min-width: 0; }
 .board { display: block; width: 100%; height: auto; max-height: calc(100vh - 110px); margin: 0 auto; font-family: var(--font-body); }
 .bpanel { display: grid; gap: 12px; min-width: 0; align-content: start; }
@@ -531,15 +529,15 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   .pc.lg { --w: clamp(80px, min(11vw, 14vh), 124px); }
   .qopt { min-height: 0; padding: 6px 12px; font-size: 1.2rem; }
   .qask { gap: 6px; }
-  .gmain.boardgame { height: 100%; overflow: hidden; align-items: stretch; grid-template-rows: minmax(0, 1fr) fit-content(44%); }
-  .board-wrap { position: static; display: flex; align-items: center; justify-content: center; min-height: 0; }
-  .board { max-height: 100%; }
-  .bpanel { min-height: 0; overflow: auto; }
+  .gmain.boardgame { height: 100%; overflow: hidden; align-items: stretch; grid-template-columns: auto minmax(320px, 1fr); }
+  .board-wrap { position: static; display: flex; align-items: center; justify-content: center; min-height: 0; width: fit-content; }
+  /* 圖紙依可用高度決定大小（viewBox 比例 13.6:15.8），寬螢幕才不會留下大片空白 */
+  .board.king { width: min(calc((100vh - 100px) * .861), 52vw); height: auto; max-height: none; }
+  .bpanel { min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .bpanel > * { flex: none; }
+  .bpanel .bhand { flex: 1 1 auto; min-height: 0; overflow: auto; align-content: flex-start; }
+  .bpanel .bhand .pc.sm { --w: clamp(52px, min(5vw, 9vh), 74px); }
   .bpanel .msg { padding: 7px 12px; line-height: 1.5; }
-  .bhandwrap { min-height: 0; display: flex; flex-direction: column; }
-  .bhandwrap > * { flex: none; }
-  .bhandwrap .bhand { flex: 0 1 auto; overflow: auto; min-height: 0; align-content: flex-start; }
-  .bhandwrap .bhand .pc.sm { --w: clamp(56px, min(5.4vw, 9vh), 74px); }
 }
 
 </style>
@@ -2498,8 +2496,7 @@ defineGame({
     const panel = h('aside', { class: 'bpanel' }, teamsEl,
       h('div', { class: 'msg ' + (s.msg ? s.msg.kind : ''), role: 'status', 'aria-live': 'polite', html: s.msg ? s.msg.html : '' }),
       h('div', { class: 'note', html: v.noteHTML }),
-      h('div', { class: 'brow' }, dieBox, h('div', { class: 'bstep', html: step })));
-    const handWrap = h('section', { class: 'bhandwrap' + (w ? ' active' : ''), style: `--pc:${me != null ? colors[me] : 'var(--line)'}` },
+      h('div', { class: 'brow' }, dieBox, h('div', { class: 'bstep', html: step })),
       h('div', { class: 'bhand-head' },
         myTeam ? h('b', {}, `${TEAM_NAMES[me]}的手牌${v.o.spectate ? '（主持人觀看中）' : ''}`) : h('b', {}, '你正在觀戰'),
         myTeam ? h('span', {}, `${myTeam.hand.length} 張`) : null,
@@ -2507,7 +2504,7 @@ defineGame({
       myTeam ? h('div', { class: 'hand bhand' }, hand) : null,
       actions.length ? h('div', { class: 'actions' }, actions.map(btnEl)) : null);
     v.root.className = 'gmain boardgame';
-    v.root.replaceChildren(h('div', { class: 'board-wrap' }, svgEl), panel, handWrap);
+    v.root.replaceChildren(h('div', { class: 'board-wrap' }, svgEl), panel);
     v.updateTimers();
     if (s.over) showOver(v, s);
   },
