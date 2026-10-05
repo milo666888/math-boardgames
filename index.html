@@ -200,7 +200,7 @@ input:focus { border-color: var(--gold); outline: none; }
 
 /* ---------- 牌桌 ---------- */
 .gmain { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 14px 28px; }
-.gmain.cardgame { display: grid; gap: 10px; align-content: start; }
+.gmain.cardgame { display: flex; flex-direction: column; gap: 10px; }
 .topline { display: flex; align-items: flex-start; gap: 10px; }
 .seats { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .clock { flex: none; font-family: var(--font-math); font-variant-numeric: tabular-nums; font-size: 1.15rem; padding: 6px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
@@ -226,7 +226,7 @@ input:focus { border-color: var(--gold); outline: none; }
 .tbar.big { position: relative; left: auto; right: auto; bottom: auto; flex: 1 1 140px; height: 22px; border-radius: 999px; display: block; min-width: 120px; }
 .tbar.big .tsec { position: absolute; inset: 0; display: grid; place-items: center; font-size: .8rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
 .tbar.big.low .tsec { color: #fff; }
-.center { min-height: 230px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px; border-radius: 18px; }
+.center { min-height: 200px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px; border-radius: 18px; }
 .s-treasure .center { background: var(--wine-table); border: 1px solid var(--wine-line); }
 .s-ghost .center { background: var(--indigo-table); border: 1px solid var(--indigo-line); }
 .showcase { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; }
@@ -260,6 +260,7 @@ input:focus { border-color: var(--gold); outline: none; }
 .me-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .me-info { color: var(--text-2); font-size: .9rem; }
 .hand { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; min-height: calc(var(--cw) * 1.4 + 12px); align-content: flex-start; }
+.hand.bhand { min-height: 0; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .covered { margin: 0; color: var(--text-3); padding: 18px 4px; }
 .spectate { margin: 0; padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--line); color: var(--text-2); text-align: center; }
@@ -499,6 +500,32 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .roompanel p { margin: 0; }
 .hostrow { display: grid; gap: 7px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); }
 .me.spec { border-style: dashed; }
+
+/* ---------- 桌機／投影：遊戲畫面塞進一個螢幕，不上下捲動 ---------- */
+@media (min-width: 900px) and (min-height: 560px) {
+  :root { --cw: clamp(44px, min(6.4vw, 8.2vh), 86px); }
+  #app { height: 100%; overflow: auto; }
+  .game { height: 100%; overflow: hidden; }
+  .game .gmain { flex: 1 1 auto; min-height: 0; padding-block: 10px 12px; }
+  .gmain.cardgame .topline { flex: none; }
+  .gmain.cardgame .center { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .gmain.cardgame .msg { flex: none; min-height: 0; padding: 7px 14px; line-height: 1.5; }
+  .gmain.cardgame .note { flex: none; }
+  .gmain.cardgame .me { flex: 0 1 auto; min-height: 0; max-height: 46%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  .gmain.cardgame .hand { overflow: auto; min-height: 0; padding-top: 10px; align-content: flex-start; }
+  .gmain.cardgame .reclaim { flex: none; }
+  .gmain.cardgame .spectate { flex: none; }
+  .pc.lg { --w: clamp(80px, min(11vw, 15vh), 124px); }
+  .qopt { min-height: 0; padding: 8px 12px; }
+  .gmain.boardgame { height: 100%; overflow: hidden; align-items: stretch; }
+  .board-wrap { position: static; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  .board { max-height: 100%; }
+  .bpanel { min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .bpanel > * { flex: none; }
+  .bpanel .bhand { flex: 1 1 auto; min-height: 0; overflow: auto; align-content: flex-start; }
+  .bpanel .bhand .pc.sm { --w: clamp(40px, min(4vw, 6.8vh), 58px); }
+  .bpanel .msg { padding: 7px 12px; line-height: 1.5; }
+}
 
 </style>
 </head>
