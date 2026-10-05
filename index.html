@@ -2619,7 +2619,7 @@ function kingArt() {
   [[66, 45], [96, 52], [36, 22]].forEach(([x, y]) => s.append(sv('rect', { x: x - 4, y: y - 3, width: 8, height: 6, rx: 1.5, class: 'ts-chest' })));
   return s;
 }
-const optTime = (list, def) => ({ key: 'time', label: '整局時間', def: String(def), choices: list.map(m => [String(m), `${m} 分鐘`]) });
+const optTime = (list, def) => ({ key: 'time', label: '整局時間', def: String(def), choices: [...list.map(m => [String(m), `${m} 分鐘`]), ['0', '不限']] });
 
 /* 每手限時：依遊戲難度給建議值（秒） */
 const META = [
@@ -2666,7 +2666,7 @@ function topBar(meta, extra = {}) {
       extra.noRules ? null : h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
       h('button', { class: 'gbtn', onclick: () => showReference(meta.series) }, '對照表')));
 }
-const LIMIT_RULE = '<h3>整局時間</h3><ul><li>每局都有時間上限（開局前可選）。時間到就立刻以當時的狀況結算，各遊戲的勝負判定不變。</li></ul><h3>每手限時</h3><ul><li>每位玩家的每一手都有時間限制，畫面上的時間條會倒數；可以在開局前調整或自訂。</li><li>時間到還沒出手就跳過這一手；必須動作的步驟（例如抽牌）由系統隨機代抽。</li><li>線上遊戲室中有人斷線時，先由電腦代打，重新連上後還給本人。</li></ul>';
+const LIMIT_RULE = '<h3>整局時間</h3><ul><li>開局前可選整局時間上限或「不限」。時間到就立刻以當時的狀況結算，各遊戲的勝負判定不變。</li></ul><h3>每手限時</h3><ul><li>每位玩家的每一手都有時間限制，畫面上的時間條會倒數；可以在開局前調整或自訂。</li><li>時間到還沒出手就跳過這一手；必須動作的步驟（例如抽牌）由系統隨機代抽。</li><li>線上遊戲室中有人斷線時，先由電腦代打，重新連上後還給本人。</li></ul>';
 function showRules(meta) {
   modal({ title: `${meta.name} · 遊戲規則`, wide: true, body: h('div', { class: 'rules', html: RULES[meta.id] + LIMIT_RULE }), actions: [{ label: '知道了', primary: true }] });
 }
