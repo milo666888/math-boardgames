@@ -541,6 +541,8 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   .bpanel .bhand .pc.sm { --w: clamp(52px, min(5vw, 9vh), 74px); }
   .bpanel .msg { padding: 7px 12px; line-height: 1.5; }
 }
+.clockrow { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); color: var(--text-2); font-size: .88rem; }
+.clockrow .clock { padding: 0; border: 0; background: none; font-size: 1.05rem; color: var(--text); }
 
 </style>
 </head>
@@ -1144,6 +1146,10 @@ class HostRunner {
     this.again = false;
     this.state = def.init(cfg);
     Object.assign(this.state, { game: def.id, limit: +cfg.limit || 0, wait: this.state.wait || [], seq: 0 });
+    /* 整局時間上限：每款遊戲都有，時間到就結算 */
+    const mins = +(cfg.opts && cfg.opts.time) || 0;
+    if (mins && !this.state.clockEnd) this.state.clockEnd = Date.now() + mins * 60000;
+    this.clockT = null;
   }
   sleep(ms) { return new Promise(res => WTimer.set(res, ms * speedFactor())); }
   isBot(seat) { return isBot(this.state.seats[seat]); }
@@ -1158,8 +1164,18 @@ class HostRunner {
     if (s.clockEnd) s.clockRemain = Math.max(0, s.clockEnd - now);
     this.onPublish(JSON.parse(JSON.stringify(s)));
   }
-  start() { this.kick(); }
-  stop() { this.alive = false; this.stopTimers(); }
+  start() {
+    const s = this.state;
+    if (s.clockEnd) this.clockT = WTimer.set(() => this.onClock(), Math.max(0, s.clockEnd - Date.now()));
+    this.kick();
+  }
+  onClock() {
+    const s = this.state;
+    if (!this.alive || s.over) return;
+    if (this.def.finish) this.def.finish(s, '時間到！'); else s.over = true;
+    this.kick();
+  }
+  stop() { this.alive = false; this.stopTimers(); WTimer.clear(this.clockT); }
   kick() {
     if (!this.alive) return;
     if (this.running) { this.again = true; return; }
@@ -1705,7 +1721,6 @@ function oldMaidDef(k) {
       const hands = seats.map(() => []);
       deck.forEach((id, i) => hands[i % n].push(id));
       const s = { seats, opts: cfg.opts, hands, pairs: seats.map(() => 0), total: 0, lastPair: null, aside, phase: 'draw', turn: 0, target: 1, wait: [], show: { type: 'intro' }, idle: 0, lastTotal: 0, drawn: null };
-      if (+cfg.opts.time) s.clockEnd = Date.now() + cfg.opts.time * 60000;
       seats.forEach((st, i) => { if (st.ai) autoAll(s, i); });
       s.lastPair = null; s.lastTotal = s.total; s.show = { type: 'intro' };
       s.wait = seats.map((st, i) => i).filter(i => !seats[i].ai).map(seat => ({ seat, kind: 'prepair' }));
@@ -2084,7 +2099,6 @@ defineGame({
     const hands = seats.map(() => []);
     deck.forEach((id, i) => hands[i % seats.length].push(id));
     const s = { seats, opts: cfg.opts, hands, stats: seats.map(() => ({ right: 0, wrong: 0 })), turn: 0, phase: 'pick', q: null, card: null, choices: null, answer: null, wait: [] };
-    if (+cfg.opts.time) s.clockEnd = Date.now() + cfg.opts.time * 60000;
     sayS(s, '遊戲開始！抽到牌的人不用答，被抽走牌的人要答。', 'turn');
     this.setPick(s);
     return s;
@@ -2501,7 +2515,8 @@ defineGame({
       actions.push({ label: '確認連線', primary: true, disabled: ui.R == null, onClick: () => v.send({ type: 'close', R: ui.R }) }, { label: '不連線', onClick: () => v.send({ type: 'close', R: null }) });
     }
     const hand = myTeam ? cardsEls(myTeam.hand, { size: 'sm', sel: ui.card ? [ui.card] : [], onClick: w && w.kind === 'choose' ? id => { ui.card = ui.card === id ? null : id; v.render(); } : null }) : null;
-    const panel = h('aside', { class: 'bpanel' }, teamsEl,
+    const clockEl = s.clockRemain != null && !s.over ? h('div', { class: 'clockrow' }, h('span', {}, '整局剩餘'), h('span', { class: 'clock', 'data-end': String(performance.now() + s.clockRemain) }, fmtClock(Math.ceil(s.clockRemain / 1000)))) : null;
+    const panel = h('aside', { class: 'bpanel' }, teamsEl, clockEl,
       h('div', { class: 'msg ' + (s.msg ? s.msg.kind : ''), role: 'status', 'aria-live': 'polite', html: s.msg ? s.msg.html : '' }),
       h('div', { class: 'note', html: v.noteHTML }),
       h('div', { class: 'brow' }, dieBox, h('div', { class: 'bstep', html: step })),
@@ -2604,31 +2619,31 @@ function kingArt() {
   [[66, 45], [96, 52], [36, 22]].forEach(([x, y]) => s.append(sv('rect', { x: x - 4, y: y - 3, width: 8, height: 6, rx: 1.5, class: 'ts-chest' })));
   return s;
 }
-const optTime = (list, def) => ({ key: 'time', label: '整局時間', def: String(def), choices: list.map(m => [String(m), m ? `${m} 分鐘` : '不限']) });
+const optTime = (list, def) => ({ key: 'time', label: '整局時間', def: String(def), choices: list.map(m => [String(m), `${m} 分鐘`]) });
 
 /* 每手限時：依遊戲難度給建議值（秒） */
 const META = [
   { id: 'ghost', series: 'ghost', name: '抓鬼特工', tag: '類似抽鬼牌', seats: [2, 4], def: 3, limit: 15, limits: [10, 15, 20, 30],
     limitNote: '每一手＝抽一張牌。開局整理手牌給 4 倍時間；配對隨時可出、不限時。', blurb: '紅色數字牌配綠色指數牌，最後別讓鬼牌留在手上。',
-    art: () => [ghostMini({ color: 'red', value: 32 }), ghostMini({ color: 'green', base: 2, exp: 5, value: 32 })], opts: [] },
+    art: () => [ghostMini({ color: 'red', value: 32 }), ghostMini({ color: 'green', base: 2, exp: 5, value: 32 })], opts: [optTime([5, 8, 10, 15], 8)] },
   { id: 'green', series: 'ghost', name: '綠色能源', tag: '類似撿紅點', seats: [2, 4], def: 2, limit: 20, limits: [15, 20, 30, 45],
     limitNote: '每出一張牌、每次挑翻開牌的配對，都重新計時。', blurb: '和海底牌配對、收回綠色指數牌，底數就是分數。',
-    art: () => [ghostMini({ color: 'green', base: 3, exp: 4, value: 81 }), ghostMini({ color: 'red', value: 81 })], opts: [] },
+    art: () => [ghostMini({ color: 'green', base: 3, exp: 4, value: 81 }), ghostMini({ color: 'red', value: 81 })], opts: [optTime([5, 10, 15, 20], 10)] },
   { id: 'drawpk', series: 'treasure', name: '抽卡PK賽', tag: '類似抽鬼牌', seats: [2, 4], def: 2, limit: 20, limits: [15, 20, 30, 45],
     limitNote: '每一手＝抽一張牌。開局整理手牌給 4 倍時間；配對隨時可出、不限時。', blurb: '數值相同就能配對，最後拿著說明卡的人輸。',
-    art: () => [trMini('H2'), trMini('S2')], opts: [optTime([0, 5, 10], 0)] },
+    art: () => [trMini('H2'), trMini('S2')], opts: [optTime([5, 8, 10, 15], 8)] },
   { id: 'pairpk', series: 'treasure', name: '配對PK賽', tag: '類似撿紅點', seats: [2, 6], def: 4, limit: 25, limits: [15, 25, 40, 60],
     limitNote: '每出一張牌、每次挑翻開牌的配對，都重新計時。', blurb: '出牌、翻牌，和桌面上數值相同的牌配對，配對組數多者勝。',
-    art: () => [trMini('D4'), trMini('H8')], opts: [] },
+    art: () => [trMini('D4'), trMini('H8')], opts: [optTime([5, 10, 15, 20], 10)] },
   { id: 'quick', series: 'treasure', name: '急中生智', tag: '限時快答', seats: [2, 4], def: 2, limit: 10, limits: [5, 10, 15, 20], limitLabel: '抽牌限時',
     limitNote: '抽牌的人限時選牌；作答時間另外設定（原規則 5 秒）。', blurb: '牌被抽走就要限時說出答案：答對送出、答錯收回。',
     art: () => [trMini('CK'), trMini('S9')],
-    opts: [{ key: 'answer', label: '作答限時', def: '5', choices: [['5', '5 秒（原規則）'], ['8', '8 秒'], ['12', '12 秒']] }, optTime([3, 5, 10, 0], 5)] },
+    opts: [{ key: 'answer', label: '作答限時', def: '5', choices: [['5', '5 秒（原規則）'], ['8', '8 秒'], ['12', '12 秒']] }, optTime([3, 5, 8, 10], 5)] },
   { id: 'king', series: 'treasure', name: '勝者為王', tag: '兩隊對戰 · 擲骰畫線', seats: [2, 2], def: 2, limit: 45, limits: [30, 45, 60, 90],
     limitNote: '選牌擲骰用這個時間；選方向、要不要封閉各另給最多 20 秒。', blurb: '出牌擲骰，依 n·sin θ、n·cos θ 與斜率移動，畫線圈住寶物。',
     art: () => [kingArt()],
     opts: [{ key: 'cards', label: '每隊手牌', def: '26', choices: [['26', '26 張（標準）'], ['13', '13 張（快速局）']] },
-      { key: 'map', label: '寶物圖紙', def: 'classic', choices: [['classic', '經典圖'], ['random', '隨機圖']] }] },
+      { key: 'map', label: '寶物圖紙', def: 'classic', choices: [['classic', '經典圖'], ['random', '隨機圖']] }, optTime([10, 15, 20, 30], 15)] },
 ];
 const metaOf = id => META.find(m => m.id === id);
 const App = { root: null, session: null };
@@ -2651,7 +2666,7 @@ function topBar(meta, extra = {}) {
       extra.noRules ? null : h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
       h('button', { class: 'gbtn', onclick: () => showReference(meta.series) }, '對照表')));
 }
-const LIMIT_RULE = '<h3>每手限時</h3><ul><li>每位玩家的每一手都有時間限制，畫面上的時間條會倒數；可以在開局前調整或自訂。</li><li>時間到還沒出手就跳過這一手；必須動作的步驟（例如抽牌）由系統隨機代抽。</li><li>線上遊戲室中有人斷線時，先由電腦代打，重新連上後還給本人。</li></ul>';
+const LIMIT_RULE = '<h3>整局時間</h3><ul><li>每局都有時間上限（開局前可選）。時間到就立刻以當時的狀況結算，各遊戲的勝負判定不變。</li></ul><h3>每手限時</h3><ul><li>每位玩家的每一手都有時間限制，畫面上的時間條會倒數；可以在開局前調整或自訂。</li><li>時間到還沒出手就跳過這一手；必須動作的步驟（例如抽牌）由系統隨機代抽。</li><li>線上遊戲室中有人斷線時，先由電腦代打，重新連上後還給本人。</li></ul>';
 function showRules(meta) {
   modal({ title: `${meta.name} · 遊戲規則`, wide: true, body: h('div', { class: 'rules', html: RULES[meta.id] + LIMIT_RULE }), actions: [{ label: '知道了', primary: true }] });
 }
