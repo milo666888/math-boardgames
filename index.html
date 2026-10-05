@@ -292,8 +292,10 @@ input:focus { border-color: var(--gold); outline: none; }
 
 /* ---------- 數學排版 ---------- */
 .mx { font-family: var(--font-math); white-space: nowrap; display: inline-flex; align-items: center; }
+/* 行內算式含分數或根號時，整個算式以文字中線對齊（否則分子會落在基線上、分母掛在下方） */
+.mx:has(.frac), .mx:has(.sq) { vertical-align: middle; position: relative; top: -.08em; }
 .fnm { margin-right: .02em; }
-.frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; line-height: 1.08; font-size: .82em; margin: 0 .1em; }
+.frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; line-height: 1.05; font-size: .88em; margin: 0 .12em; }
 .fr-n { border-bottom: .075em solid currentColor; padding: 0 .14em .05em; display: inline-flex; align-items: flex-end; }
 .fr-d { padding-top: .05em; }
 /* 卡面與選項裡的分數：分子、分母等高，讓分數線正好落在卡片中線 */
