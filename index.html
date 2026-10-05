@@ -2464,7 +2464,7 @@ defineGame({
 const PAIR_RULE = `<ul><li>數值相同的函數卡，例如 ${trigHTML('sin', 30)} 配 ${trigHTML('cos', 60)}。</li><li>函數卡配數值卡，例如 ${trigHTML('cos', 60)} 配 ${exHTML(ex(1, 1, 1, 2))}。</li></ul>`;
 const TREASURE_CARDS = '<p>「畫地取寶」卡牌共 58 張：說明卡 4 張、鬼牌 2 張，數值卡 11 張＋正弦、餘弦及正切卡共 41 張。52 張卡的左上角與右下角是撲克牌點數，正中央是數值或三角函數。</p>';
 const RULES = {
-  ghost: `<p class="lead">由新屋高中王保堤老師指導設計，透過桌遊熟悉「指數」觀念。</p>
+  ghost: `<p class="lead">透過桌遊熟悉「指數」觀念：紅色數字牌配綠色指數牌。</p>
       <h3>卡牌</h3><p>紅色數字牌 27 張、綠色指數牌 27 張、鬼牌 1 張。配對規則是「紅配綠」：綠色指數牌要與紅色數字牌數值相同才算成功，例如 2<sup>5</sup> 配 32、4<sup>2</sup> 配 16。</p>
       <h3>遊戲說明</h3><ol>
         <li>將鬼牌插入牌堆中，洗勻後平均發給所有玩家。</li>
@@ -2615,8 +2615,7 @@ function showHub() {
   App.root.append(h('div', { class: 'hub' },
     h('header', { class: 'hub-head' },
       h('div', { class: 'hub-title' }, h('h1', {}, '數學桌遊館'))),
-    group('ghost'), group('treasure'),
-    h('footer', { class: 'hub-foot' }, '依「抓鬼特工」「畫地取寶」實體桌遊的規則說明改編。')));
+    group('ghost'), group('treasure')));
 }
 
 /* ---------- 第一步：遊戲介紹（規則、人數、每手限時） ---------- */
