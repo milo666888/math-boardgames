@@ -296,9 +296,9 @@ input:focus { border-color: var(--gold); outline: none; }
 .frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; line-height: 1.08; font-size: .82em; margin: 0 .1em; }
 .fr-n { border-bottom: .075em solid currentColor; padding: 0 .14em .05em; display: inline-flex; align-items: flex-end; }
 .fr-d { padding-top: .05em; }
-.sq { display: inline-flex; align-items: stretch; vertical-align: baseline; margin-right: .04em; }
-.rsvg { width: .62em; height: auto; align-self: stretch; display: block; flex: none; overflow: visible; }
-.rad { border-top: .07em solid currentColor; padding: .04em .08em 0 .04em; line-height: 1.15; margin-left: -.03em; }
+.sq { display: inline-flex; align-items: stretch; vertical-align: baseline; margin-right: .05em; }
+.rsvg { width: .6em; height: auto; align-self: stretch; display: block; flex: none; overflow: visible; }
+.rad { border-top: .09em solid currentColor; padding: .12em .1em 0 .06em; line-height: 1.05; margin-left: -.04em; }
 sup { font-size: .6em; line-height: 0; }
 .chip { display: inline-flex; align-items: center; padding: 0 .45em; border-radius: .4em; vertical-align: middle; background: var(--paper); color: var(--paper-ink); font-family: var(--font-math); line-height: 1.75; }
 .chip.trig { color: var(--trig); } .chip.val { color: var(--val); }
@@ -821,7 +821,7 @@ const exNeg = e => ex(-e.s, e.n, e.r, e.d);
 const exAbs = e => ex(Math.abs(e.s), e.n, e.r, e.d);
 const exMul = (e, k) => (k === 0 || e.s === 0 ? EX0 : ex(e.s * Math.sign(k), e.n * Math.abs(k), e.r, e.d));
 /* 根號：用 SVG 畫勾，上方橫線由被開方數的 border-top 接上 */
-const RADICAL_SVG = '<svg class="rsvg" viewBox="0 0 10 20" preserveAspectRatio="none" aria-hidden="true"><path d="M0.6 11.2 L2.8 10.1 L5.2 18.6 L8.3 0.55 L10.5 0.55" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="butt"/></svg>';
+const RADICAL_SVG = '<svg class="rsvg" viewBox="0 0 10 20" preserveAspectRatio="none" aria-hidden="true"><path d="M0.4 12.2 L2.3 11 L5.3 19" fill="none" stroke="currentColor" stroke-width="0.9" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.2 19.2 L8.8 0.7 L10.6 0.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="miter" stroke-linecap="butt"/></svg>';
 function exTop(e) {
   return (e.n === 1 && e.r > 1 ? '' : String(e.n)) + (e.r > 1 ? `<span class="sq">${RADICAL_SVG}<span class="rad">${e.r}</span></span>` : '');
 }
