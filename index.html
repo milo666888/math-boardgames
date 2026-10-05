@@ -177,15 +177,14 @@ input:focus { border-color: var(--gold); outline: none; }
 .cta { font-size: 1.1rem; padding: 12px 30px; }
 .setup-tip { margin: 0; min-height: 1.4em; color: var(--text-3); font-size: .88rem; text-align: right; }
 .setup-tip.bad { color: var(--bad); }
-.roompanel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px; border-radius: 14px; background: var(--paper); color: var(--paper-ink); }
+.roompanel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); }
 .roomleft { display: grid; gap: 8px; min-width: 0; }
-.roomcode span { display: block; font-size: .8rem; letter-spacing: .14em; color: #6b655a; }
-.roomcode b { font-family: var(--font-math); font-size: clamp(2.6rem, 7vw, 3.6rem); letter-spacing: .18em; line-height: 1; }
+.roomcode span { display: block; font-size: .8rem; letter-spacing: .14em; color: var(--text-2); }
+.roomcode b { font-family: var(--font-math); font-size: clamp(2.6rem, 7vw, 3.6rem); letter-spacing: .18em; line-height: 1; color: var(--gold-2); }
 .roomurl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.roomurl code { font-size: .78rem; overflow-wrap: anywhere; color: #4a453d; }
-.roompanel small { color: #6b655a; font-size: .8rem; }
-.roompanel .btn { background: var(--paper-2); color: var(--paper-ink); border-color: var(--paper-line); }
-.qr { width: 150px; height: 150px; background: #fff; border-radius: 8px; }
+.roomurl code { font-size: .78rem; overflow-wrap: anywhere; color: var(--text-2); }
+.roompanel small { color: var(--text-3); font-size: .8rem; }
+.qr { width: 150px; height: 150px; padding: 8px; background: #fff; border-radius: 10px; }
 .qr svg { width: 100%; height: 100%; display: block; }
 .waitpanel { display: grid; gap: 14px; }
 .waitpanel h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 1.8rem; }
@@ -496,8 +495,10 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .opt-fixed { margin: 0; color: var(--text-2); font-size: .92rem; }
 .lv-label { font-size: .8rem; color: var(--text-3); margin-left: 4px; }
 .setup-rules h2 { margin: 0 0 .3em; font-family: var(--font-display); font-weight: 400; font-size: 1.5rem; }
-.roompanel.err { background: var(--surface-2); color: var(--bad); }
+.roompanel.err { color: var(--bad); }
 .roompanel p { margin: 0; }
+.hostrow { display: grid; gap: 7px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); }
+.me.spec { border-style: dashed; }
 
 </style>
 </head>
@@ -1247,6 +1248,8 @@ class GameView {
   }
   async update(s) {
     this.state = s;
+    /* 主持人只主持不玩：跟著輪到的人看他的畫面 */
+    if (this.o.spectate) { const w0 = s.wait[0]; if (w0) this.seat = w0.seat; else if (this.seat == null) this.seat = 0; }
     const now = performance.now();
     s.wait.forEach(w => { if (w.remain != null) this.deadlines.set(w.id, { end: now + w.remain, total: w.total || w.remain }); });
     const want = this.pickSeat(s);
@@ -1277,7 +1280,7 @@ class GameView {
         h('button', { class: 'btn primary small', onclick: () => this.o.reclaim(this.seat) }, '我回來了')));
     }
   }
-  myWait() { return this.state && !this.covered ? this.state.wait.find(x => x.seat === this.seat) : null; }
+  myWait() { return this.state && !this.covered && !this.o.spectate ? this.state.wait.find(x => x.seat === this.seat) : null; }
   /* 送出動作；錯誤只顯示在自己畫面 */
   async send(action) {
     const r = await this.o.send(this.seat, action);
@@ -1524,16 +1527,18 @@ function cardFrame(v, s, o) {
   if (viewer != null) {
     const st = s.seats[viewer];
     const w = v.myWait();
-    const me = h('section', { class: 'me' + (w ? ' active' : ''), style: `--pc:${v.covered ? 'var(--text-3)' : st.color}` },
+    const spec = v.o.spectate;
+    const me = h('section', { class: 'me' + (w || (spec && waitOf(s, viewer)) ? ' active' : '') + (spec ? ' spec' : ''), style: `--pc:${v.covered ? 'var(--text-3)' : st.color}` },
       h('div', { class: 'me-head' },
         h('span', { class: 'avatar' }, v.covered ? '?' : st.initial),
-        h('b', {}, v.covered ? '手牌已蓋上' : `${seatLabel(st)}${st.local && v.o.localSeats && v.o.localSeats.size === 1 ? '（你）' : ''}`),
+        h('b', {}, v.covered ? '手牌已蓋上' : spec ? `${seatLabel(st)} 的畫面` : `${seatLabel(st)}${st.local && v.o.localSeats && v.o.localSeats.size === 1 ? '（你）' : ''}`),
+        spec ? h('em', { class: 'tag' }, '主持人觀看中') : null,
         v.covered ? null : h('span', { class: 'me-info', html: o.meLine || '' }),
         w && w.remain != null && !v.covered ? v.timerBar(w, true) : null),
       v.covered ? h('p', { class: 'covered' }, '等待下一位玩家接手…') : h('div', { class: 'hand' }, o.hand || []),
       !v.covered && o.actions && o.actions.length ? h('div', { class: 'actions' }, o.actions.map(btnEl)) : null);
     parts.push(me);
-  } else parts.push(h('p', { class: 'spectate' }, '你正在觀戰（投影畫面）：看得到桌面與每個人的牌數，看不到手牌。'));
+  } else parts.push(h('p', { class: 'spectate' }, '你正在觀戰：看得到桌面與每個人的牌數，看不到手牌。'));
   v.root.className = 'gmain cardgame';
   v.root.replaceChildren(...parts);
   v.updateTimers();
@@ -2449,7 +2454,7 @@ defineGame({
       h('div', { class: 'note', html: v.noteHTML }),
       h('div', { class: 'brow' }, die, h('div', { class: 'bstep', html: step })),
       w && w.remain != null ? v.timerBar(w, true) : null,
-      myTeam ? h('div', { class: 'bhand-head' }, h('b', {}, `${TEAM_NAMES[me]}的手牌`), h('span', {}, `${myTeam.hand.length} 張`)) : h('p', { class: 'spectate' }, '你正在觀戰（投影畫面）。'),
+      myTeam ? h('div', { class: 'bhand-head' }, h('b', {}, `${TEAM_NAMES[me]}的手牌${v.o.spectate ? '（主持人觀看中）' : ''}`), h('span', {}, `${myTeam.hand.length} 張`)) : h('p', { class: 'spectate' }, '你正在觀戰。'),
       myTeam ? h('div', { class: 'hand bhand' }, hand) : null,
       actions.length ? h('div', { class: 'actions' }, actions.map(btnEl)) : null);
     v.root.className = 'gmain boardgame';
@@ -2636,7 +2641,7 @@ function showSetup(meta) {
   const opts = {};
   meta.opts.forEach(o => { opts[o.key] = o.choices.some(c => c[0] === (saved.opts || {})[o.key]) ? saved.opts[o.key] : o.def; });
   const total = clamp(+saved.total || meta.def, meta.seats[0], meta.seats[1]);
-  const S = { meta, phase: 'intro', total, limit: saved.limit != null ? +saved.limit : meta.limit, custom: false, opts, seats: [], room: null, code: null, game: null };
+  const S = { meta, phase: 'intro', total, limit: saved.limit != null ? +saved.limit : meta.limit, custom: false, opts, seats: [], room: null, code: null, game: null, hostPlays: saved.hostPlays !== false };
   SET = S;
   App.session = { kill: () => { if (S.game) { S.game.runner.stop(); S.game.view.destroy(); } if (S.room) S.room.close(); if (SET === S) SET = null; } };
   renderIntro();
@@ -2679,9 +2684,9 @@ function renderIntro() {
 /* ---------- 第二步：座位（等同學加入、＋電腦）與房號 ---------- */
 async function enterLobby() {
   const S = SET;
-  Store.set('set.' + S.meta.id, { total: S.total, limit: S.limit, opts: S.opts });
+  Store.set('set.' + S.meta.id, { total: S.total, limit: S.limit, opts: S.opts, hostPlays: S.hostPlays });
   S.phase = 'lobby';
-  S.seats = range(0, S.total - 1).map(i => (i === 0 ? hostSeat() : { kind: 'empty' }));
+  S.seats = range(0, S.total - 1).map(i => (i === 0 && S.hostPlays ? hostSeat() : { kind: 'empty' }));
   await openRoom();
 }
 async function openRoom() {
@@ -2726,10 +2731,13 @@ function renderLobby() {
     }
     return h('div', { class: `seatrow kind-${st.kind}`, style: `--pc:${PLAYER_COLORS[i]}` },
       h('span', { class: 'seatno' }, meta.id === 'king' ? TEAM_NAMES[i] : `${i + 1}`),
-      h('div', { class: 'seatbody' }, body), st.kind === 'empty' || i === 0 ? null : del);
+      h('div', { class: 'seatbody' }, body), st.kind === 'empty' || (st.kind === 'human' && st.local) ? null : del);
   });
   const empties = S.seats.filter(s => s.kind === 'empty').length;
   const filled = S.seats.length - empties;
+  const hostRow = h('div', { class: 'hostrow' }, h('span', { class: 'opt-label' }, '主持人'),
+    seg('主持人', [['play', '一起玩'], ['watch', '只主持，看每個人的畫面']], S.hostPlays ? 'play' : 'watch', v => setHostPlays(v === 'play'), 'host'),
+    h('small', { class: 'opt-note' }, S.hostPlays ? '你坐在一個座位上一起玩。' : '你不佔座位；遊戲中你的畫面會跟著輪到的人，顯示他的手牌與選項（適合投影）。'));
   const limitText = `${meta.limitLabel || '每手限時'}：${S.limit ? S.limit + ' 秒' : '不限時'}` + meta.opts.map(o => ` · ${o.label}：${o.choices.find(c => c[0] === S.opts[o.key])[1]}`).join('');
   const canStart = !empties && !!S.code;
   App.root.replaceChildren(h('div', { class: `setup s-${meta.series}` },
@@ -2740,11 +2748,24 @@ function renderLobby() {
         h('div', { class: 'panel-head' },
           h('h2', {}, meta.id === 'king' ? '兩隊座位' : `座位　${filled} / ${S.total} 人就位`),
           h('small', {}, limitText)),
+        hostRow,
         h('div', { class: 'seatlist' }, seatRows),
         h('div', { class: 'setup-actions' },
           empties ? h('button', { type: 'button', class: 'btn', onclick: () => { S.seats.forEach((s, i) => { if (s.kind === 'empty') S.seats[i] = { kind: 'ai', level: 'normal' }; }); changed(); } }, '空位全部補電腦') : null,
           h('button', { type: 'button', class: 'btn primary cta', disabled: !canStart, onclick: startFromLobby }, empties ? `還差 ${empties} 人` : '全員就位，開始！')),
         h('p', { class: 'setup-tip', id: 'setup-tip' }, empties ? '等同學加入，或按「＋電腦」補位。' : '')))));
+}
+function setHostPlays(play) {
+  const S = SET;
+  const hi = S.seats.findIndex(s => s.kind === 'human' && s.local);
+  if (!play) { if (hi >= 0) S.seats[hi] = { kind: 'empty' }; S.hostPlays = false; }
+  else if (hi < 0) {
+    const e = S.seats.findIndex(s => s.kind === 'empty');
+    if (e < 0) { const tip = document.getElementById('setup-tip'); tip.textContent = '座位已滿，先清空一個座位再加入。'; tip.className = 'setup-tip bad'; return; }
+    S.seats[e] = hostSeat(); S.hostPlays = true;
+  } else S.hostPlays = true;
+  Store.set('set.' + S.meta.id, { total: S.total, limit: S.limit, opts: S.opts, hostPlays: S.hostPlays });
+  renderLobby(); hostBroadcastLobby();
 }
 function clearSeat(i) {
   const S = SET, st = S.seats[i];
@@ -2793,8 +2814,8 @@ function startFromLobby() {
   if (!S.room) { bad('遊戲室還沒建立好。'); return; }
   if (S.seats.some(s => s.kind === 'empty')) { bad('還有空位：按「＋電腦」補上，或等同學加入。'); return; }
   if (S.seats.some(s => s.kind === 'human' && !s.local && !s.online)) { bad('有同學目前離線，請等他重新連上，或清空座位改由電腦補上。'); return; }
-  const me = S.seats[0];
-  Store.set('me', { name: me.name || '', no: me.no || '' });
+  const me = S.seats.find(s => s.kind === 'human' && s.local);
+  if (me) Store.set('me', { name: me.name || '', no: me.no || '' });
   hostStartGame(setupToCfg());
 }
 function gameScreen(meta, extra) {
@@ -2875,7 +2896,7 @@ function hostStartGame(cfg) {
   });
   const runId = Date.now().toString(36) + rand(1000);
   const view = new GameView(def, main, {
-    mySeat: hostSeat >= 0 ? hostSeat : null, localSeats: new Set(hostSeat >= 0 ? [hostSeat] : []),
+    mySeat: hostSeat >= 0 ? hostSeat : null, localSeats: new Set(hostSeat >= 0 ? [hostSeat] : []), spectate: hostSeat < 0,
     send: (seat, a) => Promise.resolve(S.game.runner.submit(seat, a)),
     reclaim: seat => S.game.runner.reclaim(seat),
     overActions: () => [
