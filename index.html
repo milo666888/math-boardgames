@@ -81,18 +81,14 @@ input:focus { border-color: var(--gold); outline: none; }
 
 /* ---------- 大廳 ---------- */
 .hub { max-width: 1160px; margin: 0 auto; padding-inline: 20px; padding-block: 30px 40px; display: grid; gap: 22px; }
-.hub-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 24px; align-items: end; }
+.hub-head { display: grid; gap: 8px; }
 .hub-title { display: grid; gap: 8px; }
 .hub-title h1 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: clamp(2.5rem, 7vw, 4.2rem); line-height: 1.05; letter-spacing: .06em; }
 .lede { margin: 0; color: var(--text-2); font-size: 1.05rem; max-width: 58ch; }
-.hub-side { display: grid; gap: 12px; }
-.joincard { display: grid; gap: 10px; padding: 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
-.joincard b { font-size: 1.05rem; }
-.joincard p { margin: 2px 0 0; color: var(--text-2); font-size: .88rem; }
-.joinrow { display: flex; gap: 8px; }
 .code-in { width: 7.5em; font-family: var(--font-math); font-size: 1.3rem; letter-spacing: .25em; text-align: center; }
 .code-in.big { width: 100%; font-size: 2.2rem; padding: 10px; }
-.speed { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: .82rem; color: var(--text-2); }
+.hub-join { margin: 4px 0 0; color: var(--text-2); font-size: .95rem; }
+.hub-join a { color: var(--gold-2); }
 .series { border-radius: 18px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); }
 .series-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; color: #fff; }
 .series.s-ghost .series-head { background: var(--indigo); }
@@ -473,7 +469,6 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 
 /* ---------- 窄螢幕 ---------- */
 @media (max-width: 900px) {
-  .hub-head { grid-template-columns: minmax(0, 1fr); }
   .gmain.boardgame { grid-template-columns: minmax(0, 1fr); }
   .board-wrap { position: static; }
   .board { max-height: none; }
@@ -503,7 +498,6 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 
 .opt-fixed { margin: 0; color: var(--text-2); font-size: .92rem; }
 .lv-label { font-size: .8rem; color: var(--text-3); margin-left: 4px; }
-.linkbtn { color: var(--gold-2); text-decoration: underline; font-size: .85rem; }
 .setup-rules h2 { margin: 0 0 .3em; font-family: var(--font-display); font-weight: 400; font-size: 1.5rem; }
 .roompanel.err { background: var(--surface-2); color: var(--bad); }
 .roompanel p { margin: 0; }
@@ -2598,7 +2592,7 @@ function topBar(meta, extra = {}) {
     extra.room ? h('span', { class: 'roomchip', title: '遊戲室房號' }, `房號 ${extra.room}`) : null,
     h('div', { class: 'gbar-actions' },
       ...(extra.buttons || []),
-      h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
+      extra.noRules ? null : h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
       h('button', { class: 'gbtn', onclick: () => showReference(meta.series) }, '對照表')));
 }
 const LIMIT_RULE = '<h3>每手限時</h3><ul><li>每位玩家的每一手都有時間限制，畫面上的時間條會倒數；可以在開局前調整或自訂。</li><li>時間到還沒出手就跳過這一手；必須動作的步驟（例如抽牌）由系統隨機代抽。</li><li>線上遊戲室中有人斷線時，先由電腦代打，重新連上後還給本人。</li></ul>';
@@ -2607,18 +2601,6 @@ function showRules(meta) {
 }
 
 /* ---------- 大廳 ---------- */
-function speedControl() {
-  const cur = Store.get('speed', 'normal');
-  const wrap = h('div', { class: 'seg small', role: 'radiogroup', 'aria-label': '電腦出牌速度' });
-  [['slow', '慢'], ['normal', '標準'], ['fast', '快']].forEach(([v, l]) => {
-    const b = h('button', { type: 'button', class: 'seg-btn' + (v === cur ? ' on' : ''), role: 'radio', 'aria-checked': String(v === cur), onclick: () => {
-      Store.set('speed', v);
-      wrap.querySelectorAll('.seg-btn').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); });
-    } }, l);
-    wrap.append(b);
-  });
-  return h('div', { class: 'speed' }, h('span', {}, '電腦出牌速度'), wrap);
-}
 function showHub() {
   clearApp();
   const tile = m => h('a', { class: 'tile', href: `#g-${m.id}` },
@@ -2633,16 +2615,12 @@ function showHub() {
       h('div', {}, h('h2', {}, SERIES[key].name), h('p', { class: 'series-desc' }, `單元：${SERIES[key].unit}。${SERIES[key].desc}`)),
       h('button', { class: 'btn ghost small', onclick: () => showReference(key) }, '卡牌對照表')),
     h('div', { class: 'tiles' }, META.filter(m => m.series === key).map(tile)));
-  const codeIn = h('input', { id: 'hub-code', class: 'code-in', inputmode: 'numeric', maxlength: '4', placeholder: '房號', 'aria-label': '遊戲室房號' });
-  const joinCard = h('form', { class: 'joincard', onsubmit: e => { e.preventDefault(); showJoin(codeIn.value.trim()); } },
-    h('div', {}, h('b', {}, '加入遊戲室'), h('p', {}, '輸入同學畫面上的 4 位數房號，或直接用手機掃 QR code。')),
-    h('div', { class: 'joinrow' }, codeIn, h('button', { class: 'btn primary', type: 'submit' }, '加入')));
   App.root.append(h('div', { class: 'hub' },
     h('header', { class: 'hub-head' },
       h('div', { class: 'hub-title' },
         h('h1', {}, '數學桌遊館'),
-        h('p', { class: 'lede' }, '選一款遊戲開局：可以一個人和電腦玩，也可以開線上遊戲室，讓同學用自己的裝置加入；人數不夠就按「＋電腦」補位。')),
-      h('div', { class: 'hub-side' }, joinCard, speedControl())),
+        h('p', { class: 'lede' }, '選一款遊戲開局，同學掃 QR code 或輸入房號加入；人數不夠就按「＋電腦」補位。'),
+        h('p', { class: 'hub-join' }, '同學已經開好遊戲室？ ', h('a', { href: '#join' }, '輸入房號加入 ›')))),
     group('ghost'), group('treasure'),
     h('footer', { class: 'hub-foot' }, '依「抓鬼特工」「畫地取寶」實體桌遊的規則說明改編。')));
 }
@@ -2695,7 +2673,7 @@ function renderIntro() {
   const optRows = meta.opts.map(o => h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, o.label),
     seg(o.label, o.choices, S.opts[o.key], v => { S.opts[o.key] = v; renderIntro(); }, 'opt-' + o.key)));
   App.root.replaceChildren(h('div', { class: `setup s-${meta.series}` },
-    topBar(meta, { onBack: () => { location.hash = ''; } }),
+    topBar(meta, { onBack: () => { location.hash = ''; }, noRules: true }),
     h('div', { class: 'setup-grid' },
       h('section', { class: 'panel setup-main' },
         h('div', { class: 'setup-head' }, h('div', { class: 'setup-art' }, meta.art()),
@@ -2768,7 +2746,7 @@ function renderLobby() {
         roomPanelEl(),
         h('div', { class: 'panel-head' },
           h('h2', {}, meta.id === 'king' ? '兩隊座位' : `座位　${filled} / ${S.total} 人就位`),
-          h('small', {}, limitText, ' ', h('a', { href: '#', class: 'linkbtn', onclick: e => { e.preventDefault(); leaveLobby(); } }, '修改'))),
+          h('small', {}, limitText)),
         h('div', { class: 'seatlist' }, seatRows),
         h('div', { class: 'setup-actions' },
           empties ? h('button', { type: 'button', class: 'btn', onclick: () => { S.seats.forEach((s, i) => { if (s.kind === 'empty') S.seats[i] = { kind: 'ai', level: 'normal' }; }); changed(); } }, '空位全部補電腦') : null,
