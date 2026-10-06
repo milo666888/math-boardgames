@@ -41,6 +41,7 @@
   --font-body: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif;
   --font-math: "STIX Two Text", "Cambria Math", "Cambria", "Times New Roman", serif;
   --cw: clamp(58px, 7vw, 86px);
+  --w-lg: clamp(92px, 13vw, 124px);
   --r: 14px;
 }
 * { box-sizing: border-box; }
@@ -295,15 +296,15 @@ input:focus { border-color: var(--gold); outline: none; }
 .sp-stage { display: flex; flex-wrap: wrap; gap: 22px; align-items: center; justify-content: center; }
 .sp-pile { display: grid; justify-items: center; gap: 6px; }
 .sp-pile small { color: var(--text-2); }
-.sp-ph { width: calc(var(--cw) * 1.45); height: calc(var(--cw) * 2.03); }
 .sp-side { display: grid; gap: 12px; flex: 1 1 320px; max-width: 500px; min-width: 0; }
-.sp-call { display: flex; align-items: center; gap: 14px; padding: 8px 16px; border-radius: 14px; background: var(--paper); color: var(--paper-ink); justify-self: start; }
-.sp-call span { font-size: .9rem; color: #6f6a5f; }
-.sp-num { font-size: 2rem; font-weight: 400; }
+.sp-cards { display: flex; gap: 16px; align-items: flex-start; flex: none; }
+.sp-callcard { font-family: var(--font-math); }
+.sp-num { font-size: 1.55em; color: var(--paper-ink); }
+.sp-ph { width: var(--w-lg); height: calc(var(--w-lg) * 1.4); border-radius: calc(var(--w-lg) * .1); }
 .sp-pad { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .sp-key { justify-content: center; min-height: 58px; padding: 6px; }
 .sp-key:disabled { opacity: .35; }
-.slapbtn { display: grid; place-items: center; gap: 2px; width: 100%; min-height: 96px; border-radius: 18px; border: 0; background: var(--bad); color: #fff; font-size: 2.2rem; font-weight: 700; cursor: pointer; font-family: var(--font-display); }
+.slapbtn { display: grid; place-items: center; align-content: center; gap: 2px; width: 100%; min-height: calc(var(--w-lg) * 1.4); border-radius: 18px; border: 0; background: var(--bad); color: #fff; font-size: 2.2rem; font-weight: 700; cursor: pointer; font-family: var(--font-display); }
 .slapbtn:hover { background: #ff8a7e; }
 .slapbtn:active { transform: scale(.97); }
 .slapbtn small { font-size: .78rem; font-weight: 400; opacity: .85; font-family: var(--font-body); }
@@ -345,7 +346,7 @@ sup { font-size: .6em; line-height: 0; }
 }
 .pc.xs { --w: 34px; }
 .pc.sm { --w: clamp(48px, 4.8vw, 58px); }
-.pc.lg { --w: clamp(92px, 13vw, 124px); }
+.pc.lg { --w: var(--w-lg); }
 .pc .cn { position: absolute; display: flex; flex-direction: column; align-items: center; line-height: .95; font-family: var(--font-math); font-size: .8em; }
 .pc .cn b { font-weight: 600; }
 .pc .cn i { font-style: normal; font-size: .95em; }
@@ -551,7 +552,8 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   .gmain.cardgame .hand { flex: 0 1 auto; overflow: auto; min-height: 0; padding-top: 10px; align-content: flex-start; }
   .gmain.cardgame .reclaim { flex: none; }
   .gmain.cardgame .spectate { flex: none; }
-  .pc.lg { --w: clamp(80px, min(11vw, 14vh), 124px); }
+  :root { --w-lg: clamp(80px, min(11vw, 14vh), 124px); }
+  .center.speed { --w-lg: clamp(92px, min(13vw, 21vh), 156px); }
   .qopt { min-height: 0; padding: 6px 12px; font-size: 1.2rem; }
   .qask { gap: 6px; }
   .gmain.boardgame { height: 100%; overflow: hidden; align-items: stretch; grid-template-columns: auto minmax(320px, 1fr); }
@@ -2704,9 +2706,11 @@ defineGame({
     const pileEl = h('div', { class: 'sp-pile' },
       top ? cardEl(C(top), { size: 'lg' }) : h('span', { class: 'flip-ph sp-ph' }, '中央牌堆'),
       h('small', {}, taken ? `${L(s.round.loser)} 收回 ${s.round.n} 張` : `中央 ${s.pile.length} 張`));
-    const callEl = s.call && s.phase !== 'call'
-      ? h('div', { class: 'sp-call' }, h('span', {}, `${L(s.call.seat)} 喊`), h('b', { class: 'sp-num', html: speedCallHTML(s.call.v) }))
-      : null;
+    /* 喊的數字做成和撲克牌一樣大的白卡，放在翻開的牌旁邊對照；誰喊的用灰字標在下面 */
+    const callEl = h('div', { class: 'sp-pile' },
+      s.call ? h('div', { class: 'pc lg sp-callcard' }, h('span', { class: 'sp-num', html: speedCallHTML(s.call.v) }))
+        : h('span', { class: 'flip-ph sp-ph' }, '喊的數字'),
+      h('small', {}, s.call ? `${s.phase === 'call' ? '上一位 ' : ''}${L(s.call.seat)} 喊` : '還沒有人喊'));
     let body;
     if (w && w.kind === 'call') {
       body = [h('p', { class: 'qwho' }, '輪到你：翻開最上面的牌，同時喊一個數字（不能和上一位相同）'),
@@ -2737,7 +2741,7 @@ defineGame({
       body = [h('p', { class: 'qwho' }, r.match ? '相符！' : r.loser != null ? '拍錯了！' : '不相符'),
         r.match || r.loser != null ? h('ol', { class: 'sp-times' }, rows) : null];
     } else body = [];
-    const center = h('div', { class: 'sp-stage' }, pileEl, h('div', { class: 'sp-side' }, callEl, ...body));
+    const center = h('div', { class: 'sp-stage' }, h('div', { class: 'sp-cards' }, pileEl, callEl), h('div', { class: 'sp-side' }, ...body));
     const line = i => `${s.hands[i].length} 張`;
     const hand = me != null ? [h('div', { class: 'sp-mine' }, s.hands[me].length ? cardEl(null, { back: true, deck: 'treasure' }) : null,
       h('span', {}, s.hands[me].length ? `牌背朝上 ${s.hands[me].length} 張，不能看自己的牌` : '手上的牌出完了！'))] : null;
