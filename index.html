@@ -290,6 +290,30 @@ input:focus { border-color: var(--gold); outline: none; }
 .qopt:disabled { cursor: default; }
 .qopt-m { font-size: 1.15em; }
 
+/* 極速大挑戰 */
+.center.speed { grid-template-columns: minmax(0, 1fr); }
+.sp-stage { display: flex; flex-wrap: wrap; gap: 22px; align-items: center; justify-content: center; }
+.sp-pile { display: grid; justify-items: center; gap: 6px; }
+.sp-pile small { color: var(--text-2); }
+.sp-ph { width: calc(var(--cw) * 1.45); height: calc(var(--cw) * 2.03); }
+.sp-side { display: grid; gap: 12px; flex: 1 1 320px; max-width: 500px; min-width: 0; }
+.sp-call { display: flex; align-items: center; gap: 14px; padding: 8px 16px; border-radius: 14px; background: var(--paper); color: var(--paper-ink); justify-self: start; }
+.sp-call span { font-size: .9rem; color: #6f6a5f; }
+.sp-num { font-size: 2rem; font-weight: 400; }
+.sp-pad { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.sp-key { justify-content: center; min-height: 58px; padding: 6px; }
+.sp-key:disabled { opacity: .35; }
+.slapbtn { display: grid; place-items: center; gap: 2px; width: 100%; min-height: 96px; border-radius: 18px; border: 0; background: var(--bad); color: #fff; font-size: 2.2rem; font-weight: 700; cursor: pointer; font-family: var(--font-display); }
+.slapbtn:hover { background: #ff8a7e; }
+.slapbtn:active { transform: scale(.97); }
+.slapbtn small { font-size: .78rem; font-weight: 400; opacity: .85; font-family: var(--font-body); }
+.sp-slaps { display: flex; flex-wrap: wrap; gap: 6px; }
+.sp-chip { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--pc); color: var(--text); font-size: .85rem; }
+.sp-times { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.sp-times li { display: flex; justify-content: space-between; gap: 12px; padding: 5px 12px; border-radius: 10px; background: var(--surface-2); border-left: 4px solid var(--pc); font-variant-numeric: tabular-nums; }
+.sp-times li.lose { outline: 2px solid var(--bad); }
+.sp-mine { display: flex; align-items: center; gap: 14px; color: var(--text-2); }
+
 /* ---------- 數學排版 ---------- */
 .mx { font-family: var(--font-math); white-space: nowrap; display: inline-flex; align-items: center; }
 /* 行內算式含分數或根號時，整個算式以文字中線對齊（否則分子會落在基線上、分母掛在下方） */
@@ -1199,7 +1223,8 @@ class HostRunner {
         continue;
       }
       s.wait.forEach(w => { if (!w.id) w.id = ++this.waitSeq; });
-      const bot = s.wait.find(w => this.isBot(w.seat));
+      /* live：多人同時出手的等待（例如搶拍），電腦各自計時、不排隊 */
+      const bot = s.wait.find(w => this.isBot(w.seat) && !w.live);
       if (bot) {
         s.thinking = bot.seat;
         this.publish();
@@ -1213,6 +1238,11 @@ class HostRunner {
       }
       for (const w of s.wait) {
         if (this.timers.has(w.id)) continue;
+        if (w.live && this.isBot(w.seat)) {
+          const ms = this.def.thinkMs ? this.def.thinkMs(s, w) : 900;
+          this.timers.set(w.id, WTimer.set(() => this.onLiveBot(w), ms * speedFactor()));
+          continue;
+        }
         const ms = this.limitMs(w);
         if (ms > 0) {
           w.deadline = Date.now() + ms; w.total = ms;
@@ -1225,6 +1255,14 @@ class HostRunner {
     }
   }
   stopTimers() { this.timers.forEach(t => WTimer.clear(t)); this.timers.clear(); }
+  onLiveBot(w) {
+    const s = this.state;
+    this.timers.delete(w.id);
+    if (!this.alive || s.over || !s.wait.includes(w)) return;
+    const r = this.def.act(s, w.seat, this.def.ai(s, w.seat, w), w, { bot: true });
+    if (r && r.err) console.warn('電腦出手失敗：', r.err);
+    this.kick();
+  }
   onTimeout(w) {
     const s = this.state;
     this.timers.delete(w.id);
@@ -1232,7 +1270,7 @@ class HostRunner {
     this.def.act(s, w.seat, this.def.timeout(s, w.seat, w), w, { timeout: true });
     /* 連續兩手逾時：先由電腦代打，本人按「我回來了」可以接回 */
     const st = s.seats[w.seat];
-    if (!st.ai && !st.away) {
+    if (!st.ai && !st.away && !w.optional) {
       this.misses[w.seat] = (this.misses[w.seat] || 0) + 1;
       if (this.misses[w.seat] >= 2) {
         st.away = true; st.idle = true;
@@ -2534,6 +2572,180 @@ defineGame({
 });
 
 'use strict';
+/* ============================================================
+   極速大挑戰（類似心臟病）：輪到的人翻開自己最上面的牌並喊一個數字，
+   喊的數字和翻開的牌相符 → 所有人搶著拍，拍最慢的人收回中央的牌。
+   最先把手上的牌出完的人優勝
+   ============================================================ */
+const SPEED_BOT = {                       // 電腦：拍中機率、反應時間（毫秒）、拍錯機率
+  easy: { hit: 0.8, rt: [1200, 2200], wrong: 0.1 },
+  normal: { hit: 0.92, rt: [850, 1600], wrong: 0.05 },
+  hard: { hit: 0.98, rt: [550, 1100], wrong: 0.02 },
+};
+const speedCallHTML = v => exHTML(ALL_VALUES[v]);
+const slapMs = s => (+s.opts.slap || 3) * 1000;
+
+defineGame({
+  id: 'speed',
+  thinkMs(s, w) {
+    if (w.kind !== 'slap') return 700 + rand(900);
+    const p = s.plan[w.seat];
+    return p && p.slap ? p.rt : slapMs(s);
+  },
+  limitMs: (s, w) => (w.kind === 'slap' ? Math.max(300, s.slapEnd - Date.now()) : null),
+  init(cfg) {
+    const seats = makeSeats(cfg.seats);
+    const deck = shuffle(makeTreasureDeck().map(c => c.id));
+    const hands = seats.map(() => []);
+    deck.slice(0, deck.length - deck.length % seats.length).forEach((id, i) => hands[i % seats.length].push(id));
+    const s = {
+      seats, opts: cfg.opts, hands, pile: [], turn: 0, phase: 'call', call: null, lastCall: null, match: false,
+      slaps: [], wrong: null, plan: {}, round: null, stats: seats.map(() => ({ slow: 0, wrong: 0 })), wait: [],
+    };
+    sayS(s, `每人 ${hands[0].length} 張牌，牌背朝上，不能看自己的牌。`, 'turn');
+    this.setCall(s);
+    return s;
+  },
+  setCall(s) {
+    s.phase = 'call'; s.match = false; s.slaps = []; s.wrong = null; s.plan = {};
+    s.wait = [{ seat: s.turn, kind: 'call' }];
+  },
+  /* 開始搶拍：每個人同時等待；電腦先決定要不要拍、多快拍 */
+  openSlap(s) {
+    s.phase = 'slap';
+    s.slapOpen = Date.now(); s.slapEnd = s.slapOpen + slapMs(s);
+    s.seats.forEach((st, i) => {
+      if (!isBot(st)) return;
+      const b = SPEED_BOT[st.ai ? st.level : 'normal'] || SPEED_BOT.normal;
+      const slap = s.match ? Math.random() < b.hit : Math.random() < b.wrong;
+      s.plan[i] = { slap, rt: s.match ? b.rt[0] + rand(b.rt[1] - b.rt[0]) : 700 + rand(800) };
+    });
+    s.wait = s.seats.map((_, i) => ({ seat: i, kind: 'slap', live: true, optional: true }));
+  },
+  finish(s, reason) {
+    s.over = true; s.phase = 'over'; s.wait = []; s.auto = null;
+    const ranked = rankSeats(s.seats.length, seat => s.hands[seat].length, false);
+    s.result = {
+      title: winnerTitle(s, ranked),
+      note: `${reason || ''}最先把手上的牌出完者優勝；時間到則手上牌數少者獲勝。`,
+      rows: ranked.map(r => ({ seat: r.seat, rank: String(r.rank), top: r.top, score: `${s.hands[r.seat].length} 張`, detail: `拍最慢 ${s.stats[r.seat].slow} 次、拍錯 ${s.stats[r.seat].wrong} 次` })),
+    };
+  },
+  act(s, seat, a, w, meta = {}) {
+    const L = i => seatLabel(s.seats[i]);
+    if (w.kind === 'call') {
+      if (a.type !== 'call' || !(a.v >= 0 && a.v < ALL_VALUES.length)) return { err: '請選一個要喊的數字。' };
+      if (a.v === s.lastCall) return { err: '不能和前一位喊的數字相同。' };
+      const card = s.hands[seat].shift();
+      s.pile.push(card);
+      s.call = { seat, v: a.v };
+      s.lastCall = a.v;
+      s.match = C(card).key === exKey(ALL_VALUES[a.v]);
+      sayS(s, `${meta.timeout ? `⏰ ${L(seat)} 超時，系統代喊。` : ''}${L(seat)} 翻牌並喊「${speedCallHTML(a.v)}」！相符就快拍！`, 'turn');
+      this.openSlap(s);
+      return;
+    }
+    if (w.kind === 'slap') {
+      if (a.type !== 'slap' && a.type !== 'pass') return { err: '無法執行這個動作。' };
+      s.wait = s.wait.filter(x => x !== w);
+      if (a.type === 'slap') {
+        /* 反應時間以各自畫面從看到翻牌到按下的時間計，不受網路延遲影響 */
+        const hostMs = Date.now() - s.slapOpen;
+        const rt = meta.bot ? s.plan[seat].rt : clamp(Math.round(+a.rt || hostMs), 150, Math.max(150, hostMs));
+        s.slaps.push({ seat, rt });
+        if (!s.match) { s.wrong = seat; this.resolve(s); return; }
+      }
+      if (!s.wait.length) this.resolve(s);
+      return;
+    }
+    return { err: '無法執行這個動作。' };
+  },
+  resolve(s) {
+    const L = i => seatLabel(s.seats[i]);
+    const c = C(s.pile[s.pile.length - 1]), n = s.pile.length;
+    s.wait = [];
+    let loser = null;
+    if (s.match) {
+      const rtOf = i => { const x = s.slaps.find(z => z.seat === i); return x ? x.rt : Infinity; };
+      const order = range(1, s.seats.length).map(k => (s.call.seat + k) % s.seats.length);
+      loser = order.reduce((b, i) => (rtOf(i) > rtOf(b) ? i : b), order[0]);
+      s.stats[loser].slow++;
+      sayS(s, `✓ 相符！${trExplain(c)}。拍最慢的是 ${L(loser)}，收回中央 ${n} 張牌。`, 'ok');
+    } else if (s.wrong != null) {
+      loser = s.wrong;
+      s.stats[loser].wrong++;
+      sayS(s, `✗ 不相符（${trExplain(c)}），${L(loser)} 拍錯了，收回中央 ${n} 張牌。`, 'bad');
+    } else sayS(s, `不相符（${trExplain(c)}），繼續。`);
+    if (loser != null) { s.hands[loser].push(...s.pile); s.pile = []; }
+    s.round = { match: s.match, loser, n, card: c.id, slaps: s.slaps.slice().sort((x, y) => x.rt - y.rt) };
+    s.phase = 'reveal';
+    s.auto = { kind: 'next', delay: loser != null ? 2600 : 1300 };
+  },
+  step(s) {
+    const done = s.hands.findIndex(x => !x.length);
+    if (done >= 0) { this.finish(s, `${seatLabel(s.seats[done])} 的牌出完了！`); return; }
+    s.turn = nextSeat(s, s.turn, j => s.hands[j].length > 0);
+    s.round = null;
+    this.setCall(s);
+  },
+  ai(s, seat, w) {
+    if (w.kind === 'slap') return { type: s.plan[seat] && s.plan[seat].slap ? 'slap' : 'pass' };
+    return { type: 'call', v: pick(range(0, ALL_VALUES.length - 1).filter(v => v !== s.lastCall)) };
+  },
+  timeout(s, seat, w) {
+    if (w.kind === 'slap') return { type: 'pass' };
+    return this.ai(s, seat, w);
+  },
+  render(s, v) {
+    const me = v.seat, w = v.myWait(), ui = v.ui;
+    const L = i => seatLabel(s.seats[i]);
+    const taken = s.round && s.round.loser != null;   // 揭曉時中央的牌已被收走，仍顯示剛翻出的牌
+    const top = taken ? s.round.card : s.pile.length ? s.pile[s.pile.length - 1] : null;
+    const pileEl = h('div', { class: 'sp-pile' },
+      top ? cardEl(C(top), { size: 'lg' }) : h('span', { class: 'flip-ph sp-ph' }, '中央牌堆'),
+      h('small', {}, taken ? `${L(s.round.loser)} 收回 ${s.round.n} 張` : `中央 ${s.pile.length} 張`));
+    const callEl = s.call && s.phase !== 'call'
+      ? h('div', { class: 'sp-call' }, h('span', {}, `${L(s.call.seat)} 喊`), h('b', { class: 'sp-num', html: speedCallHTML(s.call.v) }))
+      : null;
+    let body;
+    if (w && w.kind === 'call') {
+      body = [h('p', { class: 'qwho' }, '輪到你：翻開最上面的牌，同時喊一個數字（不能和上一位相同）'),
+        h('div', { class: 'sp-pad' }, ALL_VALUES.map((val, i) => h('button', {
+          class: 'qopt sp-key', disabled: i === s.lastCall, onclick: () => v.send({ type: 'call', v: i }),
+        }, h('span', { class: 'qopt-m', html: exHTML(val) }))))];
+    } else if (s.phase === 'call') {
+      body = [h('p', { class: 'muted' }, `${L(s.turn)} 準備翻牌、喊數字…`)];
+    } else if (s.phase === 'slap') {
+      const mine = s.slaps.find(x => x.seat === me);
+      if (w && w.kind === 'slap') {
+        if (ui.t0 == null) ui.t0 = performance.now();
+        const slap = () => { if (ui.sent) return; ui.sent = true; v.send({ type: 'slap', rt: Math.round(performance.now() - ui.t0) }); };
+        v.onKey = e => { if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); slap(); } };
+        body = [h('button', { class: 'slapbtn', onclick: slap }, '拍！', h('small', {}, '空白鍵')), v.timerBar(w, true)];
+      } else body = [h('p', { class: 'qwho' }, mine ? `你拍下了（${(mine.rt / 1000).toFixed(2)} 秒），等其他人…` : '搶拍中…')];
+      if (s.slaps.length) body.push(h('div', { class: 'sp-slaps' }, s.slaps.map(x => h('span', { class: 'sp-chip', style: `--pc:${s.seats[x.seat].color}` }, `✋ ${L(x.seat)}`))));
+    } else if (s.round) {
+      const r = s.round;
+      const rows = s.seats.map((_, i) => i).sort((a, b) => {
+        const ra = r.slaps.find(x => x.seat === a), rb = r.slaps.find(x => x.seat === b);
+        return (ra ? ra.rt : Infinity) - (rb ? rb.rt : Infinity);
+      }).map(i => {
+        const x = r.slaps.find(z => z.seat === i);
+        return h('li', { class: i === r.loser ? 'lose' : '', style: `--pc:${s.seats[i].color}` },
+          h('span', {}, L(i)), h('b', {}, x ? `${(x.rt / 1000).toFixed(2)} 秒` : '沒拍'));
+      });
+      body = [h('p', { class: 'qwho' }, r.match ? '相符！' : r.loser != null ? '拍錯了！' : '不相符'),
+        r.match || r.loser != null ? h('ol', { class: 'sp-times' }, rows) : null];
+    } else body = [];
+    const center = h('div', { class: 'sp-stage' }, pileEl, h('div', { class: 'sp-side' }, callEl, ...body));
+    const line = i => `${s.hands[i].length} 張`;
+    const hand = me != null ? [h('div', { class: 'sp-mine' }, s.hands[me].length ? cardEl(null, { back: true, deck: 'treasure' }) : null,
+      h('span', {}, s.hands[me].length ? `牌背朝上 ${s.hands[me].length} 張，不能看自己的牌` : '手上的牌出完了！'))] : null;
+    cardFrame(v, s, { seatLine: line, meLine: me != null ? line(me) : '', center, centerClass: 'speed', hand, actions: [] });
+  },
+});
+
+'use strict';
 /* 各遊戲規則說明（依參考資料的實體桌遊簡報） */
 const PAIR_RULE = `<ul><li>數值相同的函數卡，例如 ${trigHTML('sin', 30)} 配 ${trigHTML('cos', 60)}。</li><li>函數卡配數值卡，例如 ${trigHTML('cos', 60)} 配 ${exHTML(ex(1, 1, 1, 2))}。</li></ul>`;
 const TREASURE_CARDS = '<p>「畫地取寶」卡牌共 58 張：說明卡 4 張、鬼牌 2 張，數值卡 11 張＋正弦、餘弦及正切卡共 41 張。52 張卡的左上角與右下角是撲克牌點數，正中央是數值或三角函數。</p>';
@@ -2596,6 +2808,14 @@ const RULES = {
         <li>新點與前一點以線段連接；同時允許以「連成封閉區域」為前提，再加連一條線段。若前一點已與其他點連成封閉區域，可以任選一個舊點重新開始。</li></ol>
       <h3>遊戲結束</h3><p>任一組卡牌用盡，或圖紙上已無法再取點、連線時結束；封閉區域內寶物多的隊伍獲勝。</p>
       <h3>線上版說明</h3><ul><li>移動後若超出圖紙、和已有的線段相交或經過其他點，這張牌作廢、原地不動。</li><li>補救規則：因為無處可走而作廢時，下一手可以任選一個己方的點重新出發，避免被卡死。</li><li>sin 0°、cos 90° 這類值為 0 的牌，位移是 0。</li><li>線上版會讓兩隊出牌次數相同才結算，也可以按「提早結算」。</li></ul>`,
+  speed: `<p class="lead"><b>學習目標：</b>看到三角函數卡或數值卡，能立刻判斷它是否等於喊出的特殊角三角函數值。</p>
+      <h3>配對原則</h3><ol><li>函數卡配數值卡，例如 ${trigHTML('sin', 30)} 配 ${exHTML(ex(1, 1, 1, 2))}。</li><li>數值卡配數值卡，例如 ${exHTML(ex(1, 1, 1, 2))} 配 ${exHTML(ex(1, 1, 1, 2))}。</li></ol>
+      <h3>玩法說明</h3><ol>
+        <li>原規則 4～6 人一組，將牌卡洗牌後平分給每個人，拿到牌後不得看自己的牌，牌背朝上放在自己手上。</li>
+        <li>擇一人開始出牌，出牌時將自己最上面的牌翻開放在中間，並同時喊數字，從以下數字擇一，且不能與前一位喊的數字重複：${ALL_VALUES.map(exHTML).join('、')}。</li>
+        <li>若喊的數字能與桌面上的牌配對或相符，所有人要立刻朝中央牌堆拍下去，拍最慢的人就要把中央的牌收回去。</li>
+        <li>最先將手中的牌出完者優勝。</li></ol>
+      <h3>線上版說明</h3><ul><li>喊數字改成點選數字按鈕；拍牌按「拍！」或空白鍵。</li><li>快慢以每個人自己畫面上「從翻牌到拍下」的反應時間比較，不受網路快慢影響；拍牌時間內沒拍的人算最慢。</li><li>不相符卻拍下去算拍錯，拍錯的人收回中央的牌（避免每張都先拍再說）。</li><li>整局時間到時，手上牌數少者獲勝。</li></ul>`,
 };
 
 'use strict';
@@ -2644,6 +2864,10 @@ const META = [
     art: () => [kingArt()],
     opts: [{ key: 'cards', label: '每隊手牌', def: '26', choices: [['26', '26 張（標準）'], ['13', '13 張（快速局）']] },
       { key: 'map', label: '寶物圖紙', def: 'classic', choices: [['classic', '經典圖'], ['random', '隨機圖']] }, optTime([10, 15, 20, 30], 15)] },
+  { id: 'speed', series: 'treasure', name: '極速大挑戰', tag: '類似心臟病', seats: [2, 6], def: 4, limit: 8, limits: [5, 8, 12, 20], limitLabel: '喊數字限時',
+    limitNote: '輪到的人限時翻牌並喊數字；拍牌時間另外設定。', blurb: '翻牌同時喊數字，相符就搶著拍，拍最慢的人收回中央的牌。',
+    art: () => [trMini('H5'), trMini('S10')],
+    opts: [{ key: 'slap', label: '拍牌時間', def: '3', choices: [['2', '2 秒'], ['3', '3 秒'], ['4', '4 秒']] }, optTime([3, 5, 8, 10], 5)] },
 ];
 const metaOf = id => META.find(m => m.id === id);
 const App = { root: null, session: null };
