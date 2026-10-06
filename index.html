@@ -572,8 +572,11 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   .bpanel .bhand .pc.sm { --w: clamp(52px, min(5vw, 9vh), 74px); }
   .bpanel .msg { padding: 7px 12px; line-height: 1.5; }
 }
-.clockrow { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); color: var(--text-2); font-size: .88rem; }
-.clockrow .clock { padding: 0; border: 0; background: none; font-size: 1.05rem; color: var(--text); }
+.gmeta { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.gclock { display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.55); color: #fff; }
+.gclock small { font-size: .78rem; opacity: .85; }
+.gclock b { font-family: var(--font-math); font-variant-numeric: tabular-nums; font-size: 1.05rem; letter-spacing: .04em; }
+.gclock.low { background: #fff; color: var(--bad); border-color: #fff; }
 .hub-join { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .hub-join label { color: var(--text-2); }
 .hub-join .code-in { width: 6.5em; font-family: var(--font-math); font-size: 1.15rem; letter-spacing: .15em; text-align: center; }
@@ -1420,8 +1423,18 @@ class GameView {
       const sec = el.querySelector('.tsec');
       if (sec) sec.textContent = `${Math.ceil(left / 1000)} 秒`;
     });
-    const ck = this.root.querySelector('.clock[data-end]');
-    if (ck) ck.textContent = fmtClock(Math.ceil((+ck.dataset.end - now) / 1000));
+    /* 本局剩餘時間：顯示在上方標題列、房號左邊 */
+    const ck = document.querySelector('.gbar .gclock');
+    if (ck) {
+      const s = this.state, on = !!s && s.clockRemain != null && !s.over;
+      ck.hidden = !on;
+      if (on) {
+        if (ck.dataset.seq !== String(s.seq)) { ck.dataset.seq = String(s.seq); ck.dataset.end = String(now + s.clockRemain); }
+        const left = Math.ceil((+ck.dataset.end - now) / 1000);
+        ck.lastChild.textContent = fmtClock(Math.max(0, left));
+        ck.classList.toggle('low', left <= 60);
+      }
+    }
   }
 }
 async function handoffModalPlain(st) {
@@ -1630,8 +1643,7 @@ function cardFrame(v, s, o) {
   const viewer = v.seat;
   const others = s.seats.map((_, i) => i).filter(i => i !== viewer || v.covered);
   const seatsEl = h('section', { class: 'seats' }, others.map(i => seatChip(v, s, i, o.seatLine(i))));
-  const top = h('div', { class: 'topline' }, seatsEl,
-    s.clockRemain != null && !s.over ? h('span', { class: 'clock', 'data-end': String(performance.now() + s.clockRemain), title: '遊戲剩餘時間' }, fmtClock(Math.ceil(s.clockRemain / 1000))) : null);
+  const top = h('div', { class: 'topline' }, seatsEl);
   const center = h('section', { class: 'center' + (o.centerClass ? ' ' + o.centerClass : '') }, o.center);
   const msg = h('div', { class: 'msg ' + (s.msg ? s.msg.kind : ''), role: 'status', 'aria-live': 'polite', html: s.msg ? s.msg.html : '' });
   const note = h('div', { class: 'note', html: v.noteHTML });
@@ -1975,14 +1987,17 @@ function fishingDef(k) {
         const hand = s.hands[seat];
         if (a.type !== 'play' || !hand.includes(a.card)) return { err: '請先從手牌選一張牌。' };
         /* 能不能配對由玩家自己判斷：能配對也可以直接丟到桌面 */
+        /* 配對點錯不能重選：當作沒配對，出的牌直接留在桌面 */
+        let wrong = null;
         if (a.match != null) {
           if (!s.table.includes(a.match)) return { err: `那張牌已經不在${k.tableShort}上了。` };
-          if (!pairOK(a.card, a.match)) return { err: k.notWhy(C(a.card), C(a.match)) };
+          if (!pairOK(a.card, a.match)) { wrong = a.match; a = { ...a, match: null }; }
         }
         s.hands[seat] = hand.filter(x => x !== a.card);
         s.wait = [];
         s.lastPlaced = null;
         if (a.match != null) { capture(s, seat, a.card, a.match); sayS(s, `${L(s, seat)} 配對成功：${k.pairWhy(C(a.card), C(a.match))}`, 'ok'); }
+        else if (wrong != null) { s.table.push(a.card); s.lastPlaced = a.card; sayS(s, `✗ ${L(s, seat)} 配對錯誤：${k.notWhy(C(a.card), C(wrong))}這張牌留在${k.tableShort}。`, 'bad'); }
         else { s.table.push(a.card); s.lastPlaced = a.card; sayS(s, `${meta.timeout ? `⏰ ${L(s, seat)} 超時，隨機` : `${L(s, seat)} `}把 ${cardInline(C(a.card))} ${k.placeLabel}。`, meta.timeout ? 'bad' : ''); }
         s.turn = seat;
         const flipNow = k.mode === 'pk' || a.match != null;
@@ -1999,7 +2014,12 @@ function fishingDef(k) {
           return;
         }
         if (a.type !== 'match' || !s.table.includes(a.target)) return { err: `請點選${k.tableShort}上的一張牌。` };
-        if (!pairOK(s.flip, a.target)) return { err: k.notWhy(C(s.flip), C(a.target)) };
+        if (!pairOK(s.flip, a.target)) {
+          sayS(s, `✗ ${L(s, seat)} 配對錯誤：${k.notWhy(C(s.flip), C(a.target))}翻出的牌留在${k.tableShort}。`, 'bad');
+          s.table.push(s.flip); s.lastPlaced = s.flip;
+          s.wait = []; s.hold = 1600; nextTurn(s);
+          return;
+        }
         capture(s, seat, s.flip, a.target);
         sayS(s, `${L(s, seat)} 又配對成功：${k.pairWhy(C(s.flip), C(a.target))}`, 'ok');
         s.wait = []; s.hold = 1100; nextTurn(s);
@@ -2062,10 +2082,9 @@ function fishingDef(k) {
       const me = v.seat, w = v.myWait(), ui = v.ui;
       const playing = w && w.kind === 'play', matching = w && w.kind === 'flipmatch';
       const onTable = (playing || matching) ? id => {
-        if (matching) { if (pairOK(s.flip, id)) v.send({ type: 'match', target: id }); else v.note('✗ ' + k.notWhy(C(s.flip), C(id)), 'bad'); return; }
+        if (matching) { v.send({ type: 'match', target: id }); return; }
         if (!ui.sel) { v.note('先從手牌選一張要出的牌。', 'bad'); return; }
-        if (pairOK(ui.sel, id)) v.send({ type: 'play', card: ui.sel, match: id });
-        else v.note('✗ ' + k.notWhy(C(ui.sel), C(id)), 'bad');
+        v.send({ type: 'play', card: ui.sel, match: id });
       } : null;
       const slot = playing || matching ? h('button', {
         type: 'button', class: 'dropslot' + (playing && !ui.sel ? ' idle' : ''),
@@ -2568,8 +2587,7 @@ defineGame({
       actions.push({ label: '確認連線', primary: true, disabled: ui.R == null, onClick: () => v.send({ type: 'close', R: ui.R }) }, { label: '不連線', onClick: () => v.send({ type: 'close', R: null }) });
     }
     const hand = myTeam ? cardsEls(myTeam.hand, { size: 'sm', sel: ui.card ? [ui.card] : [], onClick: w && w.kind === 'choose' ? id => { ui.card = ui.card === id ? null : id; v.render(); } : null }) : null;
-    const clockEl = s.clockRemain != null && !s.over ? h('div', { class: 'clockrow' }, h('span', {}, '整局剩餘'), h('span', { class: 'clock', 'data-end': String(performance.now() + s.clockRemain) }, fmtClock(Math.ceil(s.clockRemain / 1000)))) : null;
-    const panel = h('aside', { class: 'bpanel' }, teamsEl, clockEl,
+    const panel = h('aside', { class: 'bpanel' }, teamsEl,
       h('div', { class: 'msg ' + (s.msg ? s.msg.kind : ''), role: 'status', 'aria-live': 'polite', html: s.msg ? s.msg.html : '' }),
       h('div', { class: 'note', html: v.noteHTML }),
       h('div', { class: 'brow' }, dieBox, h('div', { class: 'bstep', html: step })),
@@ -2789,7 +2807,7 @@ const RULES = {
         <li>所有玩家手牌都出完後開始計分，計算每位玩家收回的綠色牌卡。</li>
         <li>以綠色牌卡的底數作為分數，底數超過 10 的以 10 分計算（例：2<sup>5</sup> 得 2 分，15<sup>2</sup> 得 10 分）。</li>
         <li>收集綠色能源分數最多者獲勝。</li></ol>
-      <h3>線上版說明</h3><ul><li>配對規則與抓鬼特工相同，採「紅配綠」。</li><li>能不能配對由自己判斷：手牌能配對也可以直接丟到海底（點牌列最前面的「放到海底」）。</li><li>翻開牌堆的牌時不會提示有沒有可配對的牌：能配對就點那張牌，不能就點「留在海底」。</li><li>每手限時到了還沒出牌，會隨機丟一張手牌到海底，不會因為不出牌而把牌留在手上。</li><li>由 1 號座位先出牌（原規則由年紀最小的玩家開始）。</li></ul>`,
+      <h3>線上版說明</h3><ul><li>配對規則與抓鬼特工相同，採「紅配綠」。</li><li>能不能配對由自己判斷：手牌能配對也可以直接丟到海底（點牌列最前面的「放到海底」）。</li><li>翻開牌堆的牌時不會提示有沒有可配對的牌：能配對就點那張牌，不能就點「留在海底」。</li><li>配對點錯（兩張不相等）不能重選：出的牌或翻出的牌直接留在海底。</li><li>每手限時到了還沒出牌，會隨機丟一張手牌到海底，不會因為不出牌而把牌留在手上。</li><li>由 1 號座位先出牌（原規則由年紀最小的玩家開始）。</li></ul>`,
   drawpk: `<p class="lead"><b>學習目標：</b>熟悉特殊角（0°、30°、45°、60°、90° 及其同界角）的正弦、餘弦、正切值，能判斷哪些三角函數值相等。</p>
       <h3>卡牌</h3>${TREASURE_CARDS}
       <h3>配對規則</h3>${PAIR_RULE}
@@ -2807,7 +2825,7 @@ const RULES = {
         <li>玩家輪流出一張牌：若能和桌面上的牌配對，就收回成功配對的牌；不能配對就把牌留在桌面上。</li>
         <li>接著翻開牌堆的一張牌：能配對就收回，否則留在桌面上。</li></ol>
       <h3>遊戲結束與計分</h3><p>所有人手牌全部出清時遊戲結束，配對成功組數多者獲勝。</p>
-      <h3>線上版說明</h3><ul><li>能不能配對由自己判斷：手牌能配對也可以直接丟到桌面（點牌列最前面的「放到桌面」）。</li><li>翻開牌堆的牌時不會提示有沒有可配對的牌：能配對就點那張牌，不能就點「留在桌面」。</li><li>每手限時到了還沒出牌，會隨機丟一張手牌到桌面，不會因為不出牌而把牌留在手上。</li></ul>`,
+      <h3>線上版說明</h3><ul><li>能不能配對由自己判斷：手牌能配對也可以直接丟到桌面（點牌列最前面的「放到桌面」）。</li><li>翻開牌堆的牌時不會提示有沒有可配對的牌：能配對就點那張牌，不能就點「留在桌面」。</li><li>配對點錯（兩張不相等）不能重選：出的牌或翻出的牌直接留在桌面。</li><li>每手限時到了還沒出牌，會隨機丟一張手牌到桌面，不會因為不出牌而把牌留在手上。</li></ul>`,
   quick: `<p class="lead"><b>學習目標：</b>在時間壓力下快速回想特殊角的三角函數值，以及由數值反推對應的三角函數。</p>
       <h3>遊戲規則</h3><ul><li>抽中三角函數卡：需在 5 秒內回答它的數值。</li><li>抽中數值卡：需在 5 秒內回答一個等於該數值的三角函數。</li></ul>
       <h3>遊戲流程</h3><ol>
@@ -2902,7 +2920,9 @@ function topBar(meta, extra = {}) {
   return h('header', { class: `gbar s-${meta.series}` },
     h('button', { class: 'gbtn back', onclick: extra.onBack }, extra.backLabel || '‹ 大廳'),
     h('div', { class: 'gtitle' }, h('span', { class: 'gseries' }, SERIES[meta.series].name), h('b', {}, meta.name)),
-    extra.room ? h('span', { class: 'roomchip', title: '遊戲室房號' }, `房號 ${extra.room}`) : null,
+    extra.room ? h('span', { class: 'gmeta' },
+      h('span', { class: 'gclock', hidden: true, title: '本局剩餘時間' }, h('small', {}, '剩餘'), h('b', {})),
+      h('span', { class: 'roomchip', title: '遊戲室房號' }, `房號 ${extra.room}`)) : null,
     h('div', { class: 'gbar-actions' },
       ...(extra.buttons || []),
       extra.noRules ? null : h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
