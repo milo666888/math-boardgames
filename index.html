@@ -2904,7 +2904,7 @@ function showHub() {
       h('span', { class: 'tile-tag' }, m.tag),
       h('span', { class: 'tile-name' }, m.name),
       h('span', { class: 'tile-blurb' }, m.blurb),
-      h('span', { class: 'tile-meta' }, `${m.seats[0] === m.seats[1] ? '2 隊' : `${m.seats[0]}–${m.seats[1]} 人`} · 每手建議 ${m.limit} 秒`)));
+      h('span', { class: 'tile-meta' }, `${m.seats[0] === m.seats[1] ? '2 隊' : `${m.seats[0]}–${m.seats[1]} 人`} · 總耗時約 ${m.opts.find(o => o.key === 'time').def} 分鐘`)));
   const group = key => h('section', { class: `series s-${key}` },
     h('div', { class: 'series-head' },
       h('div', {}, h('h2', {}, SERIES[key].name), h('p', { class: 'series-desc' }, `單元：${SERIES[key].unit}。${SERIES[key].desc}`)),
