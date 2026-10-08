@@ -707,8 +707,17 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   /* 示範時上方有解說欄、下方有播放列，圖紙高度跟著縮 */
   .demo .board.king { width: min(calc((100vh - 290px) * .861), 52vw); }
 }
-.rules-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.rules-head .btn { text-decoration: none; }
+/* 加入遊戲室：房號＋座號 */
+.hub-join { align-items: flex-end; }
+.hub-join label { display: grid; gap: 3px; font-size: .78rem; color: var(--text-2); }
+.hub-join .no-in { width: 4.6em; text-align: center; font-family: var(--font-math); font-size: 1.15rem; }
+.joinpage .hub-join .code-in { width: 6em; font-size: 1.6rem; }
+.joinpage .hub-join .no-in { font-size: 1.6rem; width: 3.6em; }
+.joinpage .hub-join .btn { min-height: 48px; padding-inline: 26px; font-size: 1.05rem; }
+/* 不小心退出：回到遊戲室 */
+.rejoin { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 18px; border-radius: 16px; background: var(--surface); border: 2px solid var(--gold); }
+.rejoin span { font-weight: 700; flex: 1 1 260px; }
+.rejoin .btn.primary { min-height: 44px; padding-inline: 22px; }
 
 </style>
 </head>
@@ -1303,14 +1312,14 @@ const LEVELS = { easy: '簡單', normal: '普通', hard: '困難' };
 function makeSeats(list) {
   let ai = 0;
   return list.map((s, i) => {
-    const name = s.ai ? (s.name || AI_NAMES[ai++ % AI_NAMES.length]) : (s.name || `玩家${i + 1}`);
+    const name = s.ai ? (s.name || AI_NAMES[ai++ % AI_NAMES.length]) : (s.name || (s.no ? '' : `玩家${i + 1}`));
     return {
       name, no: s.no || '', cls: s.cls || '', ai: !!s.ai, level: s.level || 'normal', cid: s.cid || null, local: !!s.local,
       away: false, color: PLAYER_COLORS[i], initial: s.ai ? name.slice(-1) : (s.no ? String(s.no).slice(-2) : name.slice(-1)),
     };
   });
 }
-const seatLabel = st => (st.no ? `${st.no}號 ${st.name}` : st.name);
+const seatLabel = st => (st.no ? `${st.no}號${st.name ? ' ' + st.name : ''}` : st.name);
 const isBot = st => st.ai || st.away;
 
 /* 對局狀態共用小工具 */
@@ -1324,7 +1333,7 @@ function nextSeat(s, from, ok) {
 
 /* ---------------- 房主端：唯一的規則判定者 ---------------- */
 class HostRunner {
-  constructor(def, cfg, onPublish) {
+  constructor(def, cfg, onPublish, restore = null) {
     this.def = def;
     this.onPublish = onPublish;
     this.alive = true;
@@ -1333,12 +1342,22 @@ class HostRunner {
     this.misses = {};         // 每個座位連續逾時的次數
     this.running = false;
     this.again = false;
+    this.clockT = null;
+    this.pendingAuto = null;
+    if (restore && restore.state) {
+      /* 主持人重新整理後接續：沿用存下來的牌局，等待中的步驟重新計時 */
+      const s = this.state = JSON.parse(JSON.stringify(restore.state));
+      s.busy = null; s.thinking = null;
+      if (restore.pendingAuto && !s.auto && !s.over) s.auto = restore.pendingAuto;
+      s.wait.forEach(w => { delete w.deadline; delete w.remain; delete w.total; });
+      this.waitSeq = Math.max(0, ...s.wait.map(w => w.id || 0)) + 1000;
+      return;
+    }
     this.state = def.init(cfg);
     Object.assign(this.state, { game: def.id, limit: +cfg.limit || 0, wait: this.state.wait || [], seq: 0 });
     /* 整局時間上限：每款遊戲都有，時間到就結算 */
     const mins = +(cfg.opts && cfg.opts.time) || 0;
     if (mins && !this.state.clockEnd) this.state.clockEnd = Date.now() + mins * 60000;
-    this.clockT = null;
   }
   sleep(ms) { return new Promise(res => WTimer.set(res, ms * speedFactor())); }
   isBot(seat) { return isBot(this.state.seats[seat]); }
@@ -1381,10 +1400,11 @@ class HostRunner {
       if (s.hold) { const ms = s.hold; s.hold = 0; this.publish(); await this.sleep(ms); continue; }
       if (s.auto) {
         const a = s.auto; s.auto = null; s.busy = a.kind;
+        this.pendingAuto = a;     // 存檔用：重新整理後要接著做這一步
         this.publish();
         await this.sleep(a.delay || 0);
         if (!this.alive) return;
-        s.busy = null;
+        s.busy = null; this.pendingAuto = null;
         this.def.step(s, a);
         continue;
       }
@@ -1483,7 +1503,7 @@ class HostRunner {
 
 /* ---------------- 畫面端：依狀態重畫 ---------------- */
 class GameView {
-  /* opts: { mySeat, send(action) → Promise<{err}|ok>, host, localSeats:Set, onLeave, roomCode } */
+  /* opts: { mySeat, send(action) → Promise<{err}|ok>, spectate, ... }；一台裝置一位玩家 */
   constructor(def, root, opts) {
     this.def = def;
     this.root = root;
@@ -1493,7 +1513,6 @@ class GameView {
     this.uiKey = null;
     this.deadlines = new Map();
     this.state = null;
-    this.covered = false;
     this.noteHTML = '';
     this.tick = setInterval(() => this.updateTimers(), 200);
     this.onKey = null;
@@ -1501,31 +1520,12 @@ class GameView {
     document.addEventListener('keydown', this.keyListener);
   }
   destroy() { clearInterval(this.tick); if (this.rollTimer) clearInterval(this.rollTimer); document.removeEventListener('keydown', this.keyListener); }
-  /* 同一台裝置有多位真人：輪到誰就換誰的畫面（換人前先蓋牌） */
-  pickSeat(s) {
-    const local = this.o.localSeats;
-    if (!local || local.size < 2) return this.seat;
-    const w = s.wait.find(x => local.has(x.seat) && !s.seats[x.seat].away);
-    return w ? w.seat : this.seat;
-  }
-  async update(s) {
+  update(s) {
     this.state = s;
     /* 主持人只主持不玩：跟著輪到的人看他的畫面 */
     if (this.o.spectate) { const w0 = s.wait[0]; if (w0) this.seat = w0.seat; else if (this.seat == null) this.seat = 0; }
     const now = performance.now();
     s.wait.forEach(w => { if (w.remain != null) this.deadlines.set(w.id, { end: now + w.remain, total: w.total || w.remain }); });
-    const want = this.pickSeat(s);
-    if (want !== this.seat && this.o.localSeats && this.o.localSeats.size > 1 && !s.over) {
-      this.seat = want;
-      this.covered = true;
-      this.render();
-      if (this.handoffOpen) return;
-      this.handoffOpen = true;
-      await handoffModalPlain(s.seats[want]);
-      this.handoffOpen = false;
-      this.covered = false;
-      s = this.state;
-    }
     const w = s.wait.find(x => x.seat === this.seat);
     const key = w ? `${w.id}` : `none-${s.phase}`;
     const fresh = key !== this.uiKey;
@@ -1555,7 +1555,7 @@ class GameView {
         h('button', { class: 'btn primary small', onclick: () => this.o.reclaim(this.seat) }, '我回來了')));
     }
   }
-  myWait() { return this.state && !this.covered && !this.o.spectate ? this.state.wait.find(x => x.seat === this.seat) : null; }
+  myWait() { return this.state && !this.o.spectate ? this.state.wait.find(x => x.seat === this.seat) : null; }
   /* 送出動作；錯誤只顯示在自己畫面 */
   async send(action) {
     const r = await this.o.send(this.seat, action);
@@ -1597,16 +1597,6 @@ class GameView {
     }
   }
 }
-async function handoffModalPlain(st) {
-  return new Promise(res => {
-    modal({
-      title: `輪到 ${seatLabel(st)}`, dismissible: false, cls: 'handoff',
-      body: h('div', { class: 'handoff-body', style: `--pc:${st.color}` }, h('span', { class: 'avatar big' }, st.initial),
-        h('p', {}, `請把裝置交給 ${seatLabel(st)}，其他人先別看螢幕。`)),
-      actions: [{ label: `我是 ${st.name}，開始`, primary: true, onClick: res }],
-    });
-  });
-}
 
 'use strict';
 /* ============================================================
@@ -1644,9 +1634,10 @@ class RoomHost {
     this.closed = false;
     this.beat = null;
   }
-  open(tries = 0) {
+  /* fixed：主持人重新整理後用原本的房號重開（舊連線釋放前會被占用，所以多試幾次） */
+  open(tries = 0, fixed = null) {
     return new Promise((resolve, reject) => {
-      const code = String(1000 + rand(9000));
+      const code = fixed || String(1000 + rand(9000));
       const peer = new Peer(NET_PREFIX + code, PEER_OPTS);
       let settled = false;
       peer.on('open', () => {
@@ -1661,7 +1652,9 @@ class RoomHost {
         if (!settled) {
           settled = true;
           try { peer.destroy(); } catch (e) { /* 略過 */ }
-          if (err.type === 'unavailable-id' && tries < 6) this.open(tries + 1).then(resolve, reject);
+          if (err.type === 'unavailable-id' && fixed && tries < 25) setTimeout(() => this.open(tries + 1, fixed).then(resolve, reject), 2500);
+          else if (err.type === 'unavailable-id' && fixed) this.open(0, null).then(resolve, reject);   // 原房號一直被占用：改開新房號
+          else if (err.type === 'unavailable-id' && tries < 6) this.open(tries + 1).then(resolve, reject);
           else reject(err);
         } else if (this.h.onStatus) this.h.onStatus('連線發生問題：' + (err.type || err.message));
       });
@@ -1696,11 +1689,13 @@ class RoomHost {
   }
   send(conn, msg) { try { if (conn.open) conn.send(msg); } catch (e) { /* 略過 */ } }
   broadcast(msg) { for (const c of this.conns) this.send(c, msg); }
-  close() {
+  /* silent：不是主持人按「結束」，只是離開畫面 → 不通知玩家遊戲室關閉，讓他們等主持人回來 */
+  close(silent = false) {
+    if (this.closed) return;
     this.closed = true;
     WTimer.clear(this.beat);
-    this.broadcast({ t: 'closed' });
-    setTimeout(() => { try { this.peer && this.peer.destroy(); } catch (e) { /* 略過 */ } }, 300);
+    if (!silent) this.broadcast({ t: 'closed' });
+    setTimeout(() => { try { this.peer && this.peer.destroy(); } catch (e) { /* 略過 */ } }, silent ? 0 : 300);
   }
 }
 
@@ -1741,7 +1736,7 @@ class RoomClient {
       this.h.onStatus('ok', '');
       WTimer.clear(this.beat);
       this.beat = WTimer.every(() => {
-        if (Date.now() - this.lastSeen > 20000) { this.h.onStatus('lost', '和主持人的連線中斷，重新連線中…'); this.reconnect(); }
+        if (Date.now() - this.lastSeen > 20000) { this.h.onStatus('lost', '和主持人的連線中斷，自動重新連線中…'); this.reconnect(); }
         else this.send({ t: 'ping' });
       }, 3000);
       onOpen && onOpen();
@@ -1758,10 +1753,10 @@ class RoomClient {
     setTimeout(() => {
       this.reconnecting = false;
       if (this.closed) return;
-      if (this.retry > 10) { this.h.onStatus('dead', '一直連不上主持人，請回大廳重新加入。'); return; }
+      if (this.retry > 60) { this.h.onStatus('dead', '一直連不上主持人，請回首頁按「回到遊戲室」再試一次。'); return; }
       try { if (this.peer.disconnected) this.peer.reconnect(); } catch (e) { /* 略過 */ }
       this.connect();
-    }, 1500 + this.retry * 500);
+    }, Math.min(1500 + this.retry * 500, 4000));   // 主持人重新整理時，約 3 分鐘內都會自動連回
   }
   send(msg) { try { if (this.conn && this.conn.open) { this.conn.send(msg); return true; } } catch (e) { /* 略過 */ } return false; }
   close() {
@@ -1801,7 +1796,7 @@ function seatChip(v, s, i, line) {
 /* 卡牌類遊戲的版面 */
 function cardFrame(v, s, o) {
   const viewer = v.seat;
-  const others = s.seats.map((_, i) => i).filter(i => i !== viewer || v.covered);
+  const others = s.seats.map((_, i) => i).filter(i => i !== viewer);
   const seatsEl = h('section', { class: 'seats' }, others.map(i => seatChip(v, s, i, o.seatLine(i))));
   const top = h('div', { class: 'topline' }, seatsEl);
   const center = h('section', { class: 'center' + (o.centerClass ? ' ' + o.centerClass : '') }, o.center);
@@ -1812,15 +1807,15 @@ function cardFrame(v, s, o) {
     const st = s.seats[viewer];
     const w = v.myWait();
     const spec = v.o.spectate;
-    const me = h('section', { class: 'me' + (w || (spec && waitOf(s, viewer)) ? ' active' : '') + (spec ? ' spec' : ''), style: `--pc:${v.covered ? 'var(--text-3)' : st.color}` },
+    const me = h('section', { class: 'me' + (w || (spec && waitOf(s, viewer)) ? ' active' : '') + (spec ? ' spec' : ''), style: `--pc:${st.color}` },
       h('div', { class: 'me-head' },
-        h('span', { class: 'avatar' }, v.covered ? '?' : st.initial),
-        h('b', {}, v.covered ? '手牌已蓋上' : spec ? `${seatLabel(st)} 的畫面` : `${seatLabel(st)}${st.local && v.o.localSeats && v.o.localSeats.size === 1 ? '（你）' : ''}`),
+        h('span', { class: 'avatar' }, st.initial),
+        h('b', {}, spec ? `${seatLabel(st)} 的畫面` : `${seatLabel(st)}（你）`),
         spec ? h('em', { class: 'tag' }, v.o.specTag || '主持人觀看中') : null,
-        v.covered ? null : h('span', { class: 'me-info', html: o.meLine || '' }),
-        w && w.remain != null && !v.covered ? v.timerBar(w, true) : null),
-      v.covered ? h('p', { class: 'covered' }, '等待下一位玩家接手…') : h('div', { class: 'hand' }, o.hand || []),
-      !v.covered && o.actions && o.actions.length ? h('div', { class: 'actions' }, o.actions.map(btnEl)) : null);
+        h('span', { class: 'me-info', html: o.meLine || '' }),
+        w && w.remain != null ? v.timerBar(w, true) : null),
+      h('div', { class: 'hand' }, o.hand || []),
+      o.actions && o.actions.length ? h('div', { class: 'actions' }, o.actions.map(btnEl)) : null);
     parts.push(me);
   } else parts.push(h('p', { class: 'spectate' }, '你正在觀戰：看得到桌面與每個人的牌數，看不到手牌。'));
   v.root.className = 'gmain cardgame';
@@ -3209,59 +3204,81 @@ function topBar(meta, extra = {}) {
       extra.noRules ? null : h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
       h('button', { class: 'gbtn', onclick: () => showReference(meta.series) }, '對照表')));
 }
-/* withDemo：只有在大廳開的規則才放「看示範對局」（遊戲中、等候室按了會離開房間） */
-function showRules(meta, withDemo = false) {
-  const present = Store.get('role') === 'teacher';   // 主持人：投影用大字
-  const actions = [{ label: '知道了', primary: true }];
-  if (withDemo) actions.unshift({ label: '看示範對局', ghost: true, onClick: () => { location.hash = `#demo-${meta.id}`; } });
-  modal({ title: `${meta.name} · 遊戲規則`, wide: true, cls: present ? 'present' : '', body: h('div', { class: 'rules', html: rulesHTML(meta.id) }), actions });
+function showRules(meta) {
+  const present = myRole() === 'teacher';   // 主持人：投影用大字
+  modal({ title: `${meta.name} · 遊戲規則`, wide: true, cls: present ? 'present' : '', body: h('div', { class: 'rules', html: rulesHTML(meta.id) }), actions: [{ label: '知道了', primary: true }] });
 }
 
-/* ---------- 身分與個人資料 ---------- */
-const myRole = () => Store.get('role', null);
-const myProfile = () => ({ cls: '', no: '', name: '', ...Store.get('me', {}) });
-const profileOK = p => !!(p.no && p.name);   // 班級選填：不是學生也能玩
-const profileText = p => `${p.cls ? p.cls + ' ' : ''}${p.no}號 ${p.name}`;
-function profileFields(p) {
-  const f = (id, label, val, o) => h('label', { class: 'field' + (o.grow ? ' grow' : '') }, h('span', {}, label),
-    h('input', { id, value: val || '', placeholder: label, maxlength: o.max, inputmode: o.num ? 'numeric' : null, class: o.cls, 'aria-label': label }));
-  return h('div', { class: 'field-row' },
-    f('pf-cls', '班級（選填）', p.cls, { max: '6', cls: 'cls-in' }),
-    f('pf-no', '座號／編號', p.no, { max: '3', num: true, cls: 'no-in' }),
-    f('pf-name', '姓名／暱稱', p.name, { max: '12', grow: true, cls: 'name-in' }));
+/* ---------- 身分（每次進網站先選）與座號 ---------- */
+/* 身分只記在這個分頁：重新打開網站一定先問「主持人／玩家」 */
+const SS = {
+  get(k) { try { return sessionStorage.getItem('mbg.' + k); } catch (e) { return SS.mem[k] || null; } },
+  set(k, v) { try { if (v == null) sessionStorage.removeItem('mbg.' + k); else sessionStorage.setItem('mbg.' + k, v); } catch (e) { SS.mem[k] = v; } },
+  mem: {},
+};
+const myRole = () => SS.get('role');
+const myNo = () => String((Store.get('me', {}) || {}).no || '');
+const saveNo = no => Store.set('me', { no });
+function setRole(role) { SS.set('role', role); showHub(); }
+
+/* ---------- 不小心退出：最快回來 ----------
+   玩家：加入成功就記下房號＋座號；同一個分頁重新整理會自動連回，關掉再開時首頁有「回到遊戲室」。
+   主持人：遊戲室與牌局隨時存在這台裝置；同一個分頁重新整理會用同一個房號自動重開並接續牌局，
+   關掉再開時首頁有「回到遊戲室」。主持人回來前，玩家的畫面會自動重連等待。 */
+const REJOIN_MS = 3 * 60 * 60 * 1000;
+const lastRoom = () => { const r = Store.get('lastRoom', null); return r && Date.now() - r.t < REJOIN_MS ? r : null; };
+const hostSave = () => { const r = Store.get('hostSave', null); return r && Date.now() - r.t < REJOIN_MS && metaOf(r.id) ? r : null; };
+function forgetRoom() { Store.set('lastRoom', null); SS.set('inRoom', null); }
+function forgetHost() { Store.set('hostSave', null); SS.set('hosting', null); }
+function rejoinBanners() {
+  const out = [];
+  const hs = hostSave();
+  if (hs) {
+    out.push(h('div', { class: 'rejoin' },
+      h('span', {}, `你主持的遊戲室 ${hs.code}（${metaOf(hs.id).name}${hs.phase === 'game' ? '，遊戲進行中' : ''}）還沒結束`),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => { SS.set('role', hs.role || 'teacher'); restoreHost(hs); } }, '回到遊戲室'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => { forgetHost(); route(); } }, '不用了')));
+  }
+  const lr = lastRoom();
+  if (lr && !(hs && hs.code === lr.code)) {
+    out.push(h('div', { class: 'rejoin' },
+      h('span', {}, `你剛剛在遊戲室 ${lr.code}（${lr.no} 號）`),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => { SS.set('role', 'student'); quickJoin(lr.code, lr.no); } }, '回到遊戲室'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => { forgetRoom(); route(); } }, '不用了')));
+  }
+  return out;
 }
-function readProfile(root) {
-  const v = id => (root.querySelector('#' + id).value || '').trim();
-  return { cls: v('pf-cls'), no: v('pf-no'), name: v('pf-name') };
-}
-/* 玩家填一次就好，之後加入房間不用再填 */
-function editProfile(onDone) {
-  const err = h('p', { class: 'join-status' });
-  const body = h('div', { class: 'profile-form' }, h('p', { class: 'muted' }, '填一次就好，之後輸入房號就能直接加入。同一間遊戲室的座號／編號不能重複；班級可以不填。'), profileFields(myProfile()), err);
-  modal({ title: '我的資料', body, actions: [{ label: '儲存', primary: true, keepOpen: true, onClick: () => {
-    const p = readProfile(body);
-    if (!profileOK(p)) { err.textContent = '座號／編號和姓名都要填（班級選填）。'; return; }
-    Store.set('me', p);
-    document.querySelectorAll('.modal-back').forEach(m => m.remove());
-    if (onDone) onDone(p);
-  } }] });
-  setTimeout(() => { const el = [...body.querySelectorAll('input')].find(x => !x.value) || body.querySelector('input'); if (el) el.focus(); }, 40);
-}
-function setRole(role) {
-  Store.set('role', role);
-  showHub();
-  if (role === 'student' && !profileOK(myProfile())) editProfile(() => showHub());
-}
+
 function showWelcome() {
   clearApp();
   const card = (role, title, lines) => h('button', { type: 'button', class: 'rolecard', onclick: () => setRole(role) },
     h('b', {}, title), h('ul', {}, lines.map(t => h('li', {}, t))));
   App.root.append(h('div', { class: 'hub welcome' },
     h('div', { class: 'hub-title' }, h('h1', {}, '數學桌遊館')),
+    ...rejoinBanners(),
     h('p', { class: 'welcome-q' }, '你是？'),
     h('div', { class: 'roles' },
       card('teacher', '我是主持人', ['投影遊戲規則給大家看', '播放電腦示範對局', '開設遊戲室，玩家輸入房號或掃 QR code 加入']),
-      card('student', '我是玩家', ['填一次座號／編號和姓名（班級選填）', '輸入房號就能加入遊戲室', '先看規則，也可以自己開房間']))));
+      card('student', '我是玩家', ['輸入房號和座號就能加入遊戲室', '先看規則，也可以自己開房間']))));
+}
+
+/* 玩家加入：房號＋座號，按一下就連 */
+function joinFields(code, onDone) {
+  const codeIn = h('input', { class: 'code-in', inputmode: 'numeric', maxlength: '4', placeholder: '房號', value: code || '', 'aria-label': '房號' });
+  const noIn = h('input', { class: 'no-in', inputmode: 'numeric', maxlength: '3', placeholder: '座號', value: myNo(), 'aria-label': '座號' });
+  const status = h('p', { class: 'join-status', role: 'status' });
+  const go = h('button', { class: 'btn primary', type: 'submit' }, '加入');
+  const form = h('form', { class: 'hub-join', onsubmit: async e => {
+    e.preventDefault();
+    const c = codeIn.value.trim(), no = noIn.value.trim();
+    if (!/^\d{4}$/.test(c)) { status.textContent = '房號是 4 位數字。'; codeIn.focus(); return; }
+    if (!no) { status.textContent = '請輸入座號。'; noIn.focus(); return; }
+    if (!NET.available()) { status.textContent = '這個頁面目前無法連線：請用網站網址開啟。'; return; }
+    saveNo(no);
+    go.disabled = true; status.textContent = '連線中…';
+    try { await joinRoom(c, { no }); if (onDone) onDone(); } catch (err) { status.textContent = err.message; go.disabled = false; }
+  } }, h('label', {}, h('span', {}, '房號'), codeIn), h('label', {}, h('span', {}, '座號'), noIn), go);
+  return { form, status, codeIn, noIn };
 }
 
 /* ---------- 大廳 ---------- */
@@ -3278,8 +3295,8 @@ function showHub() {
       h('span', { class: 'tile-blurb' }, m.blurb),
       h('span', { class: 'tile-meta' }, `${m.seats[0] === m.seats[1] ? '2 隊' : `${m.seats[0]}–${m.seats[1]} 人`} · 總耗時約 ${m.opts.find(o => o.key === 'time').def} 分鐘`)),
     h('div', { class: 'tile-btns' },
-      h('button', { type: 'button', class: 'btn small', onclick: () => showRules(m, true) }, '規則'),
-      h('a', { class: 'btn small', href: `#demo-${m.id}` }, '示範對局'),
+      h('button', { type: 'button', class: 'btn small', onclick: () => showRules(m) }, '規則'),
+      teacher ? h('a', { class: 'btn small', href: `#demo-${m.id}` }, '示範對局') : null,
       h('a', { class: 'btn small primary', href: `#g-${m.id}` }, teacher ? '開設遊戲室' : '開房間')));
   const group = key => h('section', { class: `series s-${key}` },
     h('div', { class: 'series-head' },
@@ -3289,28 +3306,10 @@ function showHub() {
   const roleSeg = seg('身分', [['teacher', '主持人'], ['student', '玩家']], role, v => setRole(v), 'role');
   let side;
   if (teacher) side = h('div', { class: 'hub-side' }, roleSeg);
-  else {
-    const p = myProfile();
-    const codeIn = h('input', { id: 'hub-code', class: 'code-in', inputmode: 'numeric', maxlength: '4', placeholder: '房號', 'aria-label': '房號' });
-    const status = h('p', { class: 'join-status', role: 'status' });
-    const go = h('button', { class: 'btn primary', type: 'submit' }, '加入');
-    const joinForm = h('form', { class: 'hub-join', onsubmit: async e => {
-      e.preventDefault();
-      const c = codeIn.value.trim();
-      if (!/^\d{4}$/.test(c)) { status.textContent = '房號是 4 位數字。'; codeIn.focus(); return; }
-      const me = myProfile();
-      if (!profileOK(me)) { editProfile(() => joinForm.requestSubmit()); return; }
-      if (!NET.available()) { status.textContent = '這個頁面目前無法連線：請用網站網址開啟。'; return; }
-      go.disabled = true; status.textContent = '連線中…';
-      try { await joinRoom(c, me); } catch (err) { status.textContent = err.message; go.disabled = false; }
-    } }, h('label', { for: 'hub-code' }, '輸入房號'), codeIn, go);
-    side = h('div', { class: 'hub-side' }, roleSeg,
-      h('div', { class: 'mecard' }, h('span', {}, profileOK(p) ? profileText(p) : '還沒填資料'),
-        h('button', { class: 'btn ghost small', type: 'button', onclick: () => editProfile(() => showHub()) }, profileOK(p) ? '修改' : '填寫')),
-      joinForm, status);
-  }
+  else { const j = joinFields(''); side = h('div', { class: 'hub-side' }, roleSeg, j.form, j.status); }
   App.root.append(h('div', { class: 'hub' },
     h('header', { class: 'hub-head' }, h('div', { class: 'hub-title' }, h('h1', {}, '數學桌遊館')), side),
+    ...rejoinBanners(),
     group('ghost'), group('treasure')));
 }
 
@@ -3427,7 +3426,7 @@ function seg(label, choices, cur, onPick, idp) {
 }
 function hostSeat() {
   if (myRole() === 'teacher') return { kind: 'human', local: true, name: Store.get('teacherName', '主持人'), no: '', cls: '' };
-  const me = myProfile(); return { kind: 'human', local: true, name: me.name, no: me.no, cls: me.cls };
+  return { kind: 'human', local: true, name: '', no: myNo(), cls: '' };
 }
 function showSetup(meta) {
   if (SET && SET.meta === meta && SET.phase === 'lobby') { renderSetup(); return; }
@@ -3438,8 +3437,46 @@ function showSetup(meta) {
   const total = clamp(+saved.total || meta.def, meta.seats[0], meta.seats[1]);
   const S = { meta, phase: 'intro', total, limit: saved.limit != null ? +saved.limit : meta.limit, custom: false, opts, seats: [], room: null, code: null, game: null, hostPlays: saved.hostPlays !== false };
   SET = S;
-  App.session = { kill: () => { if (S.game) { S.game.runner.stop(); S.game.view.destroy(); } if (S.room) S.room.close(); if (SET === S) SET = null; } };
+  App.session = hostSession(S);
   renderIntro();
+}
+/* 離開畫面（例如按到瀏覽器的上一頁）不是「結束遊戲室」：安靜斷線，玩家會等主持人回來 */
+function hostSession(S) {
+  return { kill: () => { if (S.game) { S.game.runner.stop(); S.game.view.destroy(); } if (S.room) S.room.close(true); if (SET === S) SET = null; } };
+}
+/* 主持人的遊戲室與牌局存在這台裝置，重新整理或不小心關掉可以接續 */
+function saveHost() {
+  const S = SET;
+  if (!S || !S.code || !S.room) return;
+  Store.set('hostSave', {
+    t: Date.now(), role: myRole(), id: S.meta.id, code: S.code, phase: S.phase, total: S.total, limit: S.limit, opts: S.opts, hostPlays: S.hostPlays,
+    seats: S.seats, game: S.game && S.game.last ? { cfg: S.game.cfg, state: S.game.last, pendingAuto: S.game.runner.pendingAuto || null, runId: S.game.runId } : null,
+  });
+  SS.set('hosting', S.code);
+}
+async function restoreHost(save) {
+  const meta = metaOf(save.id);
+  clearApp();
+  history.replaceState(null, '', location.pathname + '#g-' + meta.id);
+  const S = { meta, phase: 'lobby', total: save.total, limit: save.limit, custom: false, opts: save.opts, room: null, code: null, game: null, hostPlays: save.hostPlays,
+    seats: save.seats.map(st => (st.kind === 'human' && !st.local ? { ...st, online: false } : st)) };
+  SET = S;
+  App.session = hostSession(S);
+  S.roomStatus = `正在重新開啟遊戲室 ${save.code}…（最多約 1 分鐘）`; S.roomError = false;
+  renderLobby();
+  if (!NET.available()) { S.roomStatus = '這個頁面無法建立遊戲室，請用網站網址開啟。'; S.roomError = true; renderLobby(); return; }
+  try {
+    const room = new RoomHost(hostHandlers());
+    const code = await room.open(0, save.code);
+    if (SET !== S) { room.close(true); return; }
+    S.room = room; S.code = code; S.roomStatus = '';
+    if (code !== save.code) S.notice = `原房號 ${save.code} 暫時無法使用，改用新房號 ${code}，請玩家重新輸入房號。`;
+  } catch (e) {
+    S.roomStatus = `連不上配對服務（${e.type || e.message}）。請確認網路後再試一次。`; S.roomError = true; renderLobby(); return;
+  }
+  if (save.phase === 'game' && save.game && save.game.state && !save.game.state.over) { S.phase = 'game'; hostStartGame(save.game.cfg, save.game); }
+  else { renderLobby(); saveHost(); }
+  if (S.notice) modal({ title: '房號改變了', body: h('p', {}, S.notice), actions: [{ label: '知道了', primary: true }] });
 }
 function renderSetup() { if (!SET) return; if (SET.phase === 'intro') renderIntro(); else if (SET.phase === 'lobby') renderLobby(); }
 function limitRowEl(S) {
@@ -3473,9 +3510,7 @@ function renderIntro() {
           h('div', {}, h('p', { class: 'eyebrow' }, `${meta.tag} · 單元：${SERIES[meta.series].unit}`), h('h1', {}, meta.name), h('p', { class: 'setup-blurb' }, meta.blurb))),
         h('div', { class: 'options' }, totalRow, limitRowEl(S), optRows),
         h('div', { class: 'setup-actions' }, h('button', { type: 'button', class: 'btn primary cta', onclick: enterLobby }, myRole() === 'teacher' ? '開設遊戲室 ›' : '開房間 ›'))),
-      h('section', { class: 'panel setup-rules rules', 'aria-label': '遊戲規則' },
-        h('div', { class: 'rules-head' }, h('h2', {}, '遊戲規則'), h('a', { class: 'btn small', href: `#demo-${meta.id}` }, '看示範對局')),
-        h('div', { html: rulesHTML(meta.id) })))));
+      h('section', { class: 'panel setup-rules rules', 'aria-label': '遊戲規則' }, h('h2', {}, '遊戲規則'), h('div', { html: rulesHTML(meta.id) })))));
 }
 
 /* ---------- 第二步：座位（等玩家加入、＋電腦）與房號 ---------- */
@@ -3497,6 +3532,7 @@ async function openRoom() {
     const code = await room.open();
     if (SET !== S || S.phase !== 'lobby') { room.close(); return; }
     S.room = room; S.code = code; S.roomStatus = ''; S.roomError = false;
+    saveHost();
   } catch (e) {
     S.roomStatus = `連不上配對服務（${e.type || e.message}）。請確認網路後再試一次。`; S.roomError = true;
   }
@@ -3514,11 +3550,11 @@ function renderLobby() {
     if (st.kind === 'human' && st.local) {
       body = [
         myRole() === 'teacher' ? null : h('input', { class: 'no-in', id: `seat-no-${i}`, value: st.no || '', placeholder: '座號', inputmode: 'numeric', maxlength: '3', 'aria-label': '座號', oninput: e => { st.no = e.target.value.trim(); hostBroadcastLobby(); } }),
-        h('input', { class: 'name-in', id: `seat-name-${i}`, value: st.name || '', placeholder: '姓名', maxlength: '12', 'aria-label': '姓名', oninput: e => { st.name = e.target.value.trim(); hostBroadcastLobby(); } }),
+        myRole() === 'teacher' ? h('input', { class: 'name-in', id: `seat-name-${i}`, value: st.name || '', placeholder: '名稱', maxlength: '12', 'aria-label': '名稱', oninput: e => { st.name = e.target.value.trim(); hostBroadcastLobby(); } }) : null,
         h('em', { class: 'kind human' }, '主持人（你）'),
       ];
     } else if (st.kind === 'human') {
-      body = [h('b', { class: 'seat-name' }, `${st.cls ? st.cls + ' ' : ''}${st.no ? st.no + '號 ' : ''}${st.name || '玩家'}`), h('em', { class: 'kind ' + (st.online ? 'online' : 'offline') }, st.online ? '已連線' : '離線')];
+      body = [h('b', { class: 'seat-name' }, (st.no ? `${st.no}號${st.name ? ' ' + st.name : ''}` : st.name || '玩家')), h('em', { class: 'kind ' + (st.online ? 'online' : 'offline') }, st.online ? '已連線' : '離線')];
     } else if (st.kind === 'ai') {
       body = [h('b', { class: 'seat-name' }, names[i]), h('em', { class: 'kind ai' }, '電腦'),
         h('span', { class: 'lv-label' }, '強度'), seg('電腦強度', Object.entries(LEVELS), st.level, v => { st.level = v; changed(); }, `lv-${i}`)];
@@ -3551,6 +3587,7 @@ function renderLobby() {
           empties ? h('button', { type: 'button', class: 'btn', onclick: () => { S.seats.forEach((s, i) => { if (s.kind === 'empty') S.seats[i] = { kind: 'ai', level: 'normal' }; }); changed(); } }, '空位全部補電腦') : null,
           h('button', { type: 'button', class: 'btn primary cta', disabled: !canStart, onclick: startFromLobby }, empties ? `還差 ${empties} 人` : '全員就位，開始！')),
         h('p', { class: 'setup-tip', id: 'setup-tip' }, empties ? '等玩家加入，或按「＋電腦」補位。' : '')))));
+  saveHost();
 }
 function setHostPlays(play) {
   const S = SET;
@@ -3573,6 +3610,7 @@ function clearSeat(i) {
 function leaveLobby() {
   const S = SET;
   const go = () => {
+    forgetHost();
     if (S.room) { S.room.close(); S.room = null; }
     S.code = null; S.phase = 'intro'; S.seats = [];
     renderIntro();
@@ -3612,10 +3650,10 @@ function startFromLobby() {
   if (S.seats.some(s => s.kind === 'empty')) { bad('還有空位：按「＋電腦」補上，或等玩家加入。'); return; }
   if (S.seats.some(s => s.kind === 'human' && !s.local && !s.online)) { bad('有玩家目前離線，請等他重新連上，或清空座位改由電腦補上。'); return; }
   const nos = S.seats.filter(s => s.kind === 'human' && s.no).map(s => `${s.cls || ''}|${s.no}`);
-  if (new Set(nos).size !== nos.length) { bad('有座號／編號重複，請確認每個人的資料。'); return; }
+  if (new Set(nos).size !== nos.length) { bad('有座號重複，請確認每個人的座號。'); return; }
   const me = S.seats.find(s => s.kind === 'human' && s.local);
   if (me && myRole() === 'teacher') Store.set('teacherName', me.name || '主持人');
-  else if (me) Store.set('me', { ...myProfile(), name: me.name || '', no: me.no || '' });
+  else if (me) saveNo(me.no || '');
   hostStartGame(setupToCfg());
 }
 function gameScreen(meta, extra) {
@@ -3628,13 +3666,24 @@ function gameScreen(meta, extra) {
 function hostHandlers() {
   return {
     onStatus: text => { if (SET) SET.roomStatus = text; },
-    onHello: (conn, msg) => {
+    onHello: async (conn, msg) => {
       const S = SET; if (!S || !S.room) return;
       const cid = String(msg.cid || '').slice(0, 40);
       const name = String(msg.name || '').slice(0, 12), no = String(msg.no || '').trim().slice(0, 3), cls = String(msg.cls || '').trim().slice(0, 6);
       const same = s => (s.cls || '') === cls && s.no === no;
-      const who = `${cls ? cls + ' ' : ''}${no} 號`;
-      const online = c => !!c && [...S.room.conns].some(x => x !== conn && x.cid === c);
+      const who = `${no} 號`;
+      const holder = c => (c ? [...S.room.conns].find(x => x !== conn && x.cid === c) : null);
+      /* 舊連線還活著嗎？玩家關掉頁面後馬上重開時，舊連線要過一陣子才會被判定斷線。
+         活著的畫面每 3 秒會送一次訊號：等 4 秒沒動靜就是舊的，讓本人接手 */
+      const stillLive = async c => {
+        const x = holder(c);
+        if (!x) return false;
+        if (Date.now() - x.lastSeen > 7000) return false;
+        const t = Date.now();
+        await new Promise(r => setTimeout(r, 4000));
+        return S.room && S.room.conns.has(x) && x.lastSeen > t;
+      };
+      const takeOver = c => { const x = holder(c); if (x) { x.cid = null; S.room.drop(x); } };
       const deny = text => { S.room.send(conn, { t: 'deny', msg: text }); setTimeout(() => S.room.drop(conn), 600); };
       if (S.phase === 'game' && S.game) {
         const cfgSeats = S.game.cfg.seats;
@@ -3643,7 +3692,10 @@ function hostHandlers() {
         if (seat < 0 && no) {
           const j = cfgSeats.findIndex(s => !s.ai && !s.local && same(s));
           if (j >= 0) {
-            if (online(cfgSeats[j].cid)) { deny(`${who}已經有人在遊戲中，請確認座號／編號。`); return; }
+            const old = cfgSeats[j].cid;
+            if (await stillLive(old)) { deny(`${who}已經有人在遊戲中，請確認座號。`); return; }
+            if (SET !== S || !S.game) return;
+            takeOver(old);
             cfgSeats[j].cid = cid; S.game.runner.state.seats[j].cid = cid;
             const ls = S.seats.find(s => s.kind === 'human' && !s.local && same(s));
             if (ls) ls.cid = cid;
@@ -3657,11 +3709,13 @@ function hostHandlers() {
         return;
       }
       if (S.phase !== 'lobby') { conn.cid = cid; S.room.send(conn, { t: 'welcome', seat: null, game: S.meta.id, code: S.code }); return; }
-      if (!no) { deny('請輸入座號／編號。'); return; }
+      if (!no) { deny('請輸入座號。'); return; }
       const dup = S.seats.find(s => s.kind === 'human' && same(s) && s.cid !== cid);
       if (dup) {
         /* 同班同座號的人已離線（例如關掉頁面）就讓他接回；還在線上就不能重複 */
-        if (dup.local || online(dup.cid)) { deny(`${who}已經有人使用，請確認座號／編號。`); return; }
+        if (dup.local || await stillLive(dup.cid)) { deny(`${who}已經有人使用，請確認座號。`); return; }
+        if (SET !== S || S.phase !== 'lobby') return;
+        takeOver(dup.cid);
         dup.cid = cid;
       }
       conn.cid = cid;
@@ -3707,7 +3761,7 @@ function hostNotifySeat(cid, seat) {
   if (!SET || !SET.room) return;
   [...SET.room.conns].filter(c => c.cid === cid).forEach(c => SET.room.send(c, { t: 'welcome', seat, game: SET.meta.id, code: SET.code }));
 }
-function hostStartGame(cfg) {
+function hostStartGame(cfg, restore = null) {
   const S = SET, meta = S.meta, def = GAMES[meta.id];
   if (S.game) { S.game.runner.stop(); S.game.view.destroy(); }
   document.querySelectorAll('.modal-back').forEach(m => m.remove());
@@ -3719,24 +3773,25 @@ function hostStartGame(cfg) {
     onBack: () => confirmBox('回到遊戲室？', '這一局會中止，所有人回到座位畫面。', '回遊戲室', hostBackToLobby),
     buttons: [h('button', { class: 'gbtn', onclick: () => confirmBox('提早結算？', '以目前的狀況結算這一局。', '結算', () => S.game.runner.endNow()) }, '提早結算')],
   });
-  const runId = Date.now().toString(36) + rand(1000);
+  const runId = restore ? restore.runId : Date.now().toString(36) + rand(1000);
   const view = new GameView(def, main, {
     mySeat: hostSeat >= 0 ? hostSeat : null, localSeats: new Set(hostSeat >= 0 ? [hostSeat] : []), spectate: hostSeat < 0,
     send: (seat, a) => Promise.resolve(S.game.runner.submit(seat, a)),
     reclaim: seat => S.game.runner.reclaim(seat),
     overActions: () => [
-      { label: '結束遊戲室', ghost: true, onClick: () => { location.hash = ''; } },
+      { label: '結束遊戲室', ghost: true, onClick: () => { forgetHost(); if (S.room) S.room.close(); location.hash = ''; } },
       { label: '回遊戲室', ghost: true, onClick: hostBackToLobby },
       { label: '同一批人再玩一局', primary: true, onClick: () => hostStartGame(cfg) },
     ],
   });
-  S.game = { cfg, runner: null, view, last: null };
+  S.game = { cfg, runner: null, view, last: null, runId };
   S.game.runner = new HostRunner(def, cfg, st => {
     st.runId = runId;
     S.game.last = st;
     view.update(st);
     S.room.broadcast({ t: 'state', state: st });
-  });
+    saveHost();
+  }, restore);
   S.game.runner.start();
 }
 function hostBackToLobby() {
@@ -3751,41 +3806,26 @@ function hostBackToLobby() {
 
 /* ---------- 線上遊戲室：加入者端 ---------- */
 let CL = null;
-function showJoin(code, errText) {
+function showJoin(code, errText, auto = false) {
   clearApp();
-  if (!myRole()) Store.set('role', 'student');
-  const me = myProfile();
-  const codeIn = h('input', { id: 'join-code', class: 'code-in big', inputmode: 'numeric', maxlength: '4', value: code || '', placeholder: '0000', 'aria-label': '房號' });
-  const fields = profileFields(me);
-  /* 資料已經填過：只顯示一行，按「修改」才展開 */
-  const done = profileOK(me);
-  fields.hidden = done;
-  const summary = done ? h('div', { class: 'mecard' }, h('span', {}, `以「${profileText(me)}」加入`),
-    h('button', { class: 'btn ghost small', type: 'button', onclick: () => { fields.hidden = false; summary.remove(); } }, '修改')) : null;
-  const status = h('p', { class: 'join-status', role: 'status' }, NET.available() ? (errText || '') : '這個頁面目前無法連線：請用網站網址開啟（例如掃 QR code）。');
-  const btn = h('button', { class: 'btn primary cta', type: 'submit', disabled: !NET.available() }, '加入');
-  const form = h('form', { class: 'panel joinform', onsubmit: async e => {
-    e.preventDefault();
-    const c = codeIn.value.trim(), p = readProfile(form);
-    if (!/^\d{4}$/.test(c)) { status.textContent = '房號是 4 位數字。'; return; }
-    if (!profileOK(p)) { fields.hidden = false; if (summary) summary.remove(); status.textContent = '座號／編號和姓名都要填（班級選填）。'; return; }
-    Store.set('me', p);
-    btn.disabled = true; status.textContent = '連線中…';
-    try { await joinRoom(c, p); } catch (err) { status.textContent = err.message; btn.disabled = false; }
-  } },
-  h('h1', {}, '加入遊戲室'),
-  h('label', { class: 'field' }, h('span', {}, '房號'), codeIn),
-  summary, fields, btn, status);
+  if (!myRole()) SS.set('role', 'student');
+  const j = joinFields(code);
+  j.status.textContent = NET.available() ? (errText || '') : '這個頁面目前無法連線：請用網站網址開啟（例如掃 QR code）。';
   App.root.append(h('div', { class: 'joinpage' },
     h('header', { class: 'gbar plain' }, h('button', { class: 'gbtn back', onclick: () => { location.hash = ''; } }, '‹ 大廳'), h('div', { class: 'gtitle' }, h('b', {}, '數學桌遊館'))),
-    form));
-  setTimeout(() => (code && done ? btn : code ? form.querySelector('#pf-cls') : codeIn).focus(), 30);
+    h('div', { class: 'panel joinform' }, h('h1', {}, '加入遊戲室'), j.form, j.status)));
+  if (auto) j.form.requestSubmit();
+  else setTimeout(() => (code && !j.noIn.value ? j.noIn : code ? j.form.querySelector('.btn') : j.codeIn).focus(), 30);
 }
+/* 不小心退出後一鍵回來（座號會自動帶入） */
+function quickJoin(code, no) { if (no) saveNo(no); showJoin(code, '正在連回遊戲室…', true); }
 async function joinRoom(code, hello) {
   const cl = { code, seat: null, view: null, runId: null, lobby: null, meta: null };
   cl.rc = new RoomClient(code, hello, { onMsg: msg => clientMsg(cl, msg), onStatus: (state, text) => clientStatus(state, text) });
   try { await cl.rc.start(); } catch (e) { cl.rc.close(); throw e; }
   CL = cl;
+  Store.set('lastRoom', { code, no: hello.no, t: Date.now() });
+  SS.set('inRoom', `${code}|${hello.no}`);
   App.session = { kill: () => { cl.rc.close(); if (cl.view) cl.view.destroy(); if (CL === cl) CL = null; } };
   if (!cl.view) clientWaiting(cl);
 }
@@ -3804,12 +3844,12 @@ function clientMsg(cl, msg) {
       if (cl.view) cl.view.destroy();
       document.querySelectorAll('.modal-back').forEach(m => m.remove());
       cl.runId = st.runId; cl.meta = meta;
-      const main = gameScreen(meta, { room: cl.code, backLabel: '‹ 離開', onBack: () => confirmBox('離開遊戲室？', '離開後由電腦代打你的座位。', '離開', () => { location.hash = ''; }) });
+      const main = gameScreen(meta, { room: cl.code, backLabel: '‹ 離開', onBack: () => confirmBox('離開遊戲室？', '離開後由電腦代打你的座位；之後在首頁按「回到遊戲室」可以接回。', '離開', () => { location.hash = ''; }) });
       cl.view = new GameView(GAMES[meta.id], main, {
         mySeat: cl.seat, localSeats: new Set(cl.seat != null ? [cl.seat] : []),
         send: (seat, a) => { cl.rc.send({ t: 'act', action: a }); return Promise.resolve({ ok: true }); },
         reclaim: () => cl.rc.send({ t: 'back' }),
-        overActions: () => [{ label: '離開遊戲室', ghost: true, onClick: () => { location.hash = ''; } }, { label: '等主持人開下一局', primary: true }],
+        overActions: () => [{ label: '離開遊戲室', ghost: true, onClick: () => { forgetRoom(); location.hash = ''; } }, { label: '等主持人開下一局', primary: true }],
       });
     }
     cl.view.update(st);
@@ -3818,11 +3858,12 @@ function clientMsg(cl, msg) {
   if (msg.t === 'err') { if (cl.view) cl.view.note('✗ ' + msg.msg, 'bad'); return; }
   if (msg.t === 'deny') {
     cl.rc.close(); if (cl.view) cl.view.destroy(); if (CL === cl) CL = null; App.session = null;
+    SS.set('inRoom', null);
     showJoin(cl.code, '✗ ' + msg.msg);
     return;
   }
   if (msg.t === 'closed') {
-    cl.rc.close();
+    cl.rc.close(); forgetRoom();
     modal({ title: '遊戲室已關閉', body: h('p', {}, '主持人已經關閉遊戲室。'), dismissible: false, actions: [{ label: '回大廳', primary: true, onClick: () => { location.hash = ''; } }] });
   }
 }
@@ -3838,10 +3879,10 @@ function clientWaiting(cl) {
   const seats = lb ? lb.seats.map((st, i) => h('div', { class: `seatrow kind-${st.kind}` + (i === cl.seat ? ' me' : ''), style: `--pc:${PLAYER_COLORS[i]}` },
     h('span', { class: 'seatno' }, meta && meta.id === 'king' ? TEAM_NAMES[i] : `${i + 1}`),
     h('div', { class: 'seatbody' },
-      st.kind === 'empty' ? h('span', { class: 'seat-empty' }, '空位') : h('b', { class: 'seat-name' }, `${st.cls ? st.cls + ' ' : ''}${st.no ? st.no + '號 ' : ''}${st.name || (st.kind === 'ai' ? '電腦' : '玩家')}`),
+      st.kind === 'empty' ? h('span', { class: 'seat-empty' }, '空位') : h('b', { class: 'seat-name' }, (st.no ? `${st.no}號${st.name ? ' ' + st.name : ''}` : st.name || (st.kind === 'ai' ? '電腦' : '玩家'))),
       st.kind === 'ai' ? h('em', { class: 'kind ai' }, `電腦·${LEVELS[st.level]}`) : st.kind === 'human' ? h('em', { class: 'kind human' }, st.host ? '主持人' : i === cl.seat ? '你' : '真人') : null))) : [];
   App.root.replaceChildren(h('div', { class: `setup s-${meta ? meta.series : 'treasure'}` },
-    h('header', { class: `gbar s-${meta ? meta.series : 'treasure'}` }, h('button', { class: 'gbtn back', onclick: () => { location.hash = ''; } }, '‹ 離開'),
+    h('header', { class: `gbar s-${meta ? meta.series : 'treasure'}` }, h('button', { class: 'gbtn back', onclick: () => { forgetRoom(); location.hash = ''; } }, '‹ 離開'),
       h('div', { class: 'gtitle' }, h('span', { class: 'gseries' }, '線上遊戲室'), h('b', {}, meta ? meta.name : '連線中')),
       h('span', { class: 'roomchip' }, `房號 ${cl.code}`)),
     h('div', { class: 'setup-grid one' },
@@ -3865,7 +3906,13 @@ App.root = document.getElementById('app');
 window.addEventListener('hashchange', route);
 (() => {
   const q = new URLSearchParams(location.search).get('room');
-  if (q && /^\d{4}$/.test(q)) { history.replaceState(null, '', location.pathname + '#join'); showJoin(q); } else route();
+  if (q && /^\d{4}$/.test(q)) { history.replaceState(null, '', location.pathname + '#join'); showJoin(q); return; }
+  /* 同一個分頁重新整理：主持人自動重開遊戲室、玩家自動連回 */
+  const hs = hostSave();
+  if (hs && SS.get('hosting') === hs.code) { restoreHost(hs); return; }
+  const inRoom = SS.get('inRoom');
+  if (inRoom && lastRoom()) { const [c, no] = inRoom.split('|'); quickJoin(c, no); return; }
+  route();
 })();
 
 </script>
