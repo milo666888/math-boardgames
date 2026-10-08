@@ -626,13 +626,14 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .lobby-room { padding: 0; overflow: hidden; }
 .lobby-room .roompanel { border: 0; border-radius: 0; }
 @media (min-width: 900px) {
-  .setup-grid.lobby { grid-template-columns: minmax(300px, 400px) minmax(0, 660px); }
-  .lobby-room { position: sticky; top: 16px; }
-  .lobby-room .roompanel { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; padding: 22px; }
+  /* 左右兩欄上下對齊：一樣高，左欄內容垂直置中 */
+  .setup-grid.lobby { grid-template-columns: minmax(300px, 400px) minmax(0, 660px); align-items: stretch; }
+  .lobby-room { display: flex; }
+  .lobby-room .roompanel { flex: 1; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: center; text-align: center; padding: 22px; }
   .lobby-room .roomleft { justify-items: center; }
   .lobby-room .roomcode b { font-size: clamp(3.2rem, 6vw, 4.4rem); }
   .lobby-room .roomurl { justify-content: center; }
-  .lobby-room .qr { width: min(300px, 100%); height: auto; aspect-ratio: 1; order: -1; }
+  .lobby-room .qr { width: min(270px, 100%); height: auto; aspect-ratio: 1; order: -1; }
 }
 /* 鍵盤提示：觸控裝置不顯示 */
 .kbd-hint { color: var(--text-3); font-size: .85em; margin-left: .3em; }
@@ -691,7 +692,7 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .demo-ctl { flex: none; position: sticky; bottom: 0; z-index: 25; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); }
 .demo-range { flex: 1 1 220px; min-width: 160px; accent-color: var(--gold); height: 28px; }
 .demo .gmain.cardgame .me { position: static; max-height: none; box-shadow: none; }
-.demo .bact { display: none; }
+@media (max-width: 899px) { .demo .bact { display: none; } }
 @media (min-width: 900px) and (min-height: 560px) {
   .demo-narr { max-height: 24vh; overflow: auto; }
   .dn-msg { font-size: 1.2rem; }
@@ -718,6 +719,17 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .rejoin { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 18px; border-radius: 16px; background: var(--surface); border: 2px solid var(--gold); }
 .rejoin span { font-weight: 700; flex: 1 1 260px; }
 .rejoin .btn.primary { min-height: 44px; padding-inline: 22px; }
+/* 示範對局：游標移過去、點下去 */
+.demo-cursor { position: fixed; left: 0; top: 0; z-index: 9999; pointer-events: none; width: 50px; height: 50px; transform: translate(-120px, -120px); transition: transform .6s cubic-bezier(.4, .1, .2, 1);
+  filter: drop-shadow(0 2px 5px rgba(0,0,0,.7)) drop-shadow(0 0 10px rgba(242,182,50,.95)); }
+.demo-cursor .who { position: absolute; left: 34px; top: 40px; white-space: nowrap; padding: 3px 10px; border-radius: 999px; background: var(--gold); color: #2b1d00; font-weight: 700; font-size: .85rem; }
+.demo-cursor .who:empty { display: none; }
+.demo-cursor svg { width: 100%; height: 100%; display: block; transform-origin: 3px 3px; transition: transform .12s; }
+.demo-cursor.down svg { transform: scale(.82); }
+.demo-ring { position: fixed; z-index: 9998; pointer-events: none; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; border: 5px solid var(--gold); animation: demoRing .7s ease-out forwards; }
+@keyframes demoRing { from { transform: scale(.2); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+.demo-hit { outline: 4px solid var(--gold) !important; outline-offset: 3px; box-shadow: 0 0 0 9px rgba(242,182,50,.35) !important; }
+.pc.demo-hit { transform: translateY(-8px); }
 
 </style>
 </head>
@@ -1555,7 +1567,7 @@ class GameView {
         h('button', { class: 'btn primary small', onclick: () => this.o.reclaim(this.seat) }, '我回來了')));
     }
   }
-  myWait() { return this.state && !this.o.spectate ? this.state.wait.find(x => x.seat === this.seat) : null; }
+  myWait() { return this.state && (!this.o.spectate || this.o.puppet) ? this.state.wait.find(x => x.seat === this.seat) : null; }
   /* 送出動作；錯誤只顯示在自己畫面 */
   async send(action) {
     const r = await this.o.send(this.seat, action);
@@ -2059,6 +2071,7 @@ function oldMaidDef(k) {
     },
     step() {},
     finish,
+    demoKind: s => 'om-' + ((s.show && s.show.type) || 'x'),
     /* 示範對局的解說 */
     teach(s) {
       if (s.over) return '';
@@ -2296,6 +2309,7 @@ function fishingDef(k) {
     /* 超時：出牌是一定要做的動作 → 隨機丟一張到桌面；翻牌配對 → 翻出的牌留在桌面 */
     timeout: (s, seat, w) => (w.kind === 'play' ? { type: 'play', card: pick(s.hands[seat]), match: null } : { type: 'skip' }),
     finish,
+    demoKind: s => { const e = s.ev || {}; return 'f-' + (e.type || 'start') + (e.flip ? '-flip' : ''); },
     /* 示範對局的解說 */
     teach(s) {
       if (s.over) return '';
@@ -2471,6 +2485,7 @@ defineGame({
     if (w.kind === 'pick') return { type: 'pick', index: rand(s.hands[w.from].length) };
     return { type: 'skip' };
   },
+  demoKind: s => 'q-' + s.phase + (s.phase === 'reveal' && s.answer ? (s.answer.ok ? '-ok' : '-ng') : ''),
   /* 示範對局的解說 */
   teach(s) {
     if (s.over) return '';
@@ -2754,6 +2769,10 @@ defineGame({
     for (const c of s.move.cands) { const g = this.newIn(s, seat, mapPoly(s.map, mapCycle(s.map, seat, s.move.start, c, s.move.qi))); if (g > bg) { bg = g; R = c; } }
     return { type: 'close', R };
   },
+  demoKind(s) {
+    const c = s.move && s.move.card ? C(s.move.card) : null;
+    return 'k-' + s.phase + (c && s.phase === 'dir' ? '-' + (c.kind === 'trig' ? c.fn : 'val') : '') + (s.msg && s.msg.kind ? '-' + s.msg.kind : '');
+  },
   /* 示範對局的解說 */
   teach(s) {
     if (s.over) return '';
@@ -2984,12 +3003,17 @@ defineGame({
   },
   ai(s, seat, w) {
     if (w.kind === 'slap') return { type: s.plan[seat] && s.plan[seat].slap ? 'slap' : 'pass' };
+    if (s.opts.demo && Math.random() < 0.35) {
+      const v = ALL_VALUES.findIndex(x => exKey(x) === C(s.hands[seat][0]).key);
+      if (v >= 0 && v !== s.lastCall) return { type: 'call', v };
+    }
     return { type: 'call', v: pick(range(0, ALL_VALUES.length - 1).filter(v => v !== s.lastCall)) };
   },
   timeout(s, seat, w) {
     if (w.kind === 'slap') return { type: 'pass' };
     return this.ai(s, seat, w);
   },
+  demoKind: s => 'sp-' + s.phase + (s.phase !== 'call' ? (s.match ? '-m' : '-n') : '') + (s.round && s.round.loser != null ? '-l' : ''),
   /* 示範對局的解說 */
   teach(s) {
     if (s.over) return '';
@@ -3313,11 +3337,17 @@ function showHub() {
     group('ghost'), group('treasure')));
 }
 
-/* ---------- 示範對局：先在背景讓電腦玩完一整局並錄下每一步，再像影片一樣播放 ----------
-   可以暫停、上一步／下一步、拖進度條；每一步都有「發生什麼＋為什麼」的解說 */
-const DEMO_CAP = 4 * 60 * 1000;          // 一局示範最長 4 分鐘（遊戲內時間）
+/* ---------- 示範對局：先在背景讓電腦玩一局並錄下每一步，再像影片一樣播放 ----------
+   可以暫停、上一步／下一步、拖進度條；每一步有「發生什麼＋為什麼」的解說，
+   並用一個明顯的游標「移過去、點下去」，看得出這一步動了哪裡。
+   後面都是重複的步驟時就提早結束，不拖長 */
+const DEMO_CAP = 4 * 60 * 1000;          // 遊戲內時間上限
+const DEMO_MIN_STEPS = 20, DEMO_QUIET = 10, DEMO_MAX_STEPS = 60;
 class DemoRecorder extends HostRunner {
-  constructor(def, cfg, onPublish) { super(def, cfg, onPublish); this.vt = 0; this.capped = false; }
+  constructor(def, cfg, onPublish) {
+    super(def, cfg, onPublish);
+    this.vt = 0; this.capped = false; this.steps = 0; this.lastN = null; this.kinds = new Set(); this.lastNew = 0;
+  }
   /* 不真的等待：只累計遊戲內時間，播放時再照這個節奏 */
   sleep(ms) {
     if (this.state.over) return new Promise(() => {});
@@ -3327,13 +3357,22 @@ class DemoRecorder extends HostRunner {
   }
   schedule(fn, ms) { const at = this.vt + ms; return setTimeout(() => { this.vt = Math.max(this.vt, at); fn(); }, Math.max(1, Math.round(ms / 100))); }
   publish() {
-    if (this.capped && !this.state.over) this.def.finish(this.state, '示範到此結束。');
+    const s = this.state;
+    const n = s.msg ? s.msg.n : 0;
+    if (n !== this.lastN) {
+      /* 新的一步：看看是不是新種類的事件；很久都沒有新東西就代表後面都在重複 */
+      this.lastN = n; this.steps++;
+      const kind = this.def.demoKind ? this.def.demoKind(s) : (s.msg && s.msg.kind) || '';
+      if (!this.kinds.has(kind)) { this.kinds.add(kind); this.lastNew = this.steps; }
+      if ((this.steps >= DEMO_MIN_STEPS && this.steps - this.lastNew >= DEMO_QUIET) || this.steps >= DEMO_MAX_STEPS) this.capped = true;
+    }
+    if (this.capped && !s.over) this.def.finish(s, '示範到這裡（後面都是重複的步驟），以目前的狀況結算。');
     super.publish();
   }
 }
 function recordDemo(meta) {
   const def = GAMES[meta.id];
-  const opts = {}; meta.opts.forEach(o => { opts[o.key] = o.def; }); opts.time = '0';
+  const opts = { demo: true }; meta.opts.forEach(o => { opts[o.key] = o.def; }); opts.time = '0';
   const n = meta.seats[0] === meta.seats[1] ? 2 : Math.min(4, meta.seats[1]);
   const cfg = { seats: range(0, n - 1).map(() => ({ ai: true, level: 'normal' })), opts, limit: meta.limit };
   return new Promise(res => {
@@ -3347,6 +3386,76 @@ function recordDemo(meta) {
     rec.start();
   });
 }
+
+/* 這一步（a → b）是誰點了什麼：回傳要依序點的畫面元素 */
+function demoTargets(id, a, b, root) {
+  const q = sel => root.querySelector(sel), qa = sel => [...root.querySelectorAll(sel)];
+  const card = (scope, cid) => (cid ? q(`${scope} .pc[data-id="${cid}"]`) : null);
+  const middle = list => list[Math.floor(list.length / 2)];
+  const changed = (a.msg && a.msg.n) !== (b.msg && b.msg.n);
+  const out = [];
+  if (id === 'ghost' || id === 'drawpk') {
+    const w = a.wait.find(x => x.kind === 'draw');
+    if (w && changed && b.show && b.show.seat === w.seat && ['pair', 'drew', 'drawn'].includes(b.show.type)) out.push(middle(qa('.drawrow .pc')));
+  } else if (id === 'green' || id === 'pairpk') {
+    const e = b.ev || {};
+    if (changed && a.wait.some(x => x.kind === 'play')) {
+      if (e.type === 'cap' && !e.flip) out.push(card('.me .hand', e.a), card('.tablecards', e.b));
+      else if (e.type === 'place') out.push(card('.me .hand', e.card), q('.dropslot'));
+    } else if (changed && e.type === 'flip') out.push(q('.pile .pc'));
+    else if (changed && e.type === 'cap' && e.flip) out.push(card('.tablecards', e.b));
+    else if (changed && e.type === 'draw') out.push(q('.pile .pc'));
+  } else if (id === 'quick') {
+    if (a.phase === 'pick' && b.phase === 'answer') out.push(middle(qa('.drawrow .pc')));
+    if (a.phase === 'answer' && b.phase === 'reveal' && b.answer && b.answer.choice >= 0) out.push(qa('.qopt')[b.answer.choice]);
+  } else if (id === 'king') {
+    if (a.phase === 'choose' && b.phase === 'roll' && b.move) out.push(card('.bhand', b.move.card), q('.bact .btn'));
+    if (a.phase === 'dir' && b.phase !== 'dir' && a.move && a.move.opts && b.map.pts.length > a.map.pts.length) {
+      const P = b.map.pts[b.map.pts.length - 1];
+      const i = a.move.opts.findIndex(o => Math.abs(o.Q.x - P.x) < 1e-6 && Math.abs(o.Q.y - P.y) < 1e-6);
+      if (i >= 0) out.push(qa('.ghost-pt')[i]);
+    }
+    if (a.phase === 'close' && b.phase !== 'close') {
+      const e = b.map.edges[b.map.edges.length - 1];
+      const btn = t => qa('.bact .btn').find(x => x.textContent.includes(t));
+      if (b.map.edges.length > a.map.edges.length && e && e.closing) out.push(qa('.pt')[e.b], btn('確認'));
+      else out.push(btn('不連線'));
+    }
+  } else if (id === 'speed') {
+    if (a.phase === 'call' && b.phase !== 'call' && b.call) out.push(qa('.sp-key')[b.call.v]);
+    const me = a.wait[0] ? a.wait[0].seat : null;
+    if (a.phase === 'slap' && me != null && (b.slaps || []).some(x => x.seat === me) && !(a.slaps || []).some(x => x.seat === me)) out.push(q('.slapbtn'));
+  }
+  return out.filter(Boolean);
+}
+const CURSOR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 2 L3 19 L7.6 14.9 L10.6 21.6 L13.6 20.3 L10.7 13.7 L17 13.6 Z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+function demoCursor() {
+  let c = document.querySelector('.demo-cursor');
+  if (!c) { c = h('div', { class: 'demo-cursor', html: CURSOR_SVG }, h('span', { class: 'who' })); document.body.append(c); }
+  return c;
+}
+async function demoClick(els, speed, live, who) {
+  const cur = demoCursor();
+  cur.querySelector('.who').textContent = who || '';
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  for (const el of els) {
+    if (!live()) return;
+    let r = el.getBoundingClientRect();
+    if (!r.width && !r.height) continue;
+    if (r.top < 60 || r.bottom > innerHeight - 90) { el.scrollIntoView({ block: 'center' }); r = el.getBoundingClientRect(); }
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    cur.style.transitionDuration = speed.move + 'ms';
+    cur.style.transform = `translate(${x}px, ${y}px)`;
+    await pause(speed.move + 60);
+    if (!live()) return;
+    const ring = h('div', { class: 'demo-ring', style: `left:${x}px;top:${y}px` });
+    document.body.append(ring); setTimeout(() => ring.remove(), 750);
+    el.classList.add('demo-hit'); cur.classList.add('down');
+    await pause(150); cur.classList.remove('down');
+    await pause(speed.press);
+  }
+}
+
 const DEMO_SPEEDS = [['0.35', '慢'], ['0.6', '中'], ['1.1', '快']];
 async function showDemo(meta) {
   clearApp();
@@ -3355,63 +3464,84 @@ async function showDemo(meta) {
   const game = main.parentNode; game.classList.add('demo');
   const narr = h('section', { class: 'demo-narr', 'aria-live': 'polite' }, h('p', { class: 'muted' }, '電腦正在準備一局示範…'));
   main.before(narr);
-  let alive = true, timer = null;
-  App.session = { kill: () => { alive = false; clearInterval(timer); if (view) view.destroy(); } };
-  let view = null;
+  let alive = true, view = null, token = 0;
+  App.session = { kill: () => { alive = false; token++; if (view) view.destroy(); document.querySelectorAll('.demo-cursor, .demo-ring').forEach(x => x.remove()); } };
   const frames = await recordDemo(meta);
   if (!alive) return;
-  /* 「一步」＝訊息換了一次；進度條、上一步／下一步都以步為單位 */
+  /* 「一步」＝訊息換了一次。同一種步驟最多播 3 次，之後同類的直接跳過（重複的就不用了） */
   const steps = [];
   frames.forEach((f, i) => { const n = f.st.msg ? f.st.msg.n : 0; if (!steps.length || steps[steps.length - 1].n !== n) steps.push({ n, i }); });
-  const stepOf = i => { let k = 0; while (k + 1 < steps.length && steps[k + 1].i <= i) k++; return k; };
-  view = new GameView(def, main, { mySeat: null, localSeats: new Set(), spectate: true, specTag: '示範對局', noOverModal: true, send: () => Promise.resolve({ ok: true }) });
-  let cur = -1, t = 0, playing = true;
+  const seen = {};
+  steps.forEach((st, k) => {
+    const kind = def.demoKind ? def.demoKind(frames[st.i].st) : '';
+    seen[kind] = (seen[kind] || 0) + 1;
+    st.keep = k === 0 || k === steps.length - 1 || seen[kind] <= 3;
+  });
+  /* 播放順序：留下的步驟；前面有略過的，先放「動手前」那一格當過場，游標才有東西可以點 */
+  const seq = [], kept = [];
+  let skipped = 0;
+  steps.forEach((st, k) => {
+    const end = k + 1 < steps.length ? steps[k + 1].i : frames.length;
+    if (!st.keep) { skipped++; return; }
+    if (skipped) { seq.push({ fi: st.i - 1, bridge: skipped }); skipped = 0; }
+    kept.push(seq.length);
+    for (let f = st.i; f < end; f++) seq.push({ fi: f, step: kept.length - 1 });
+  });
+  const stepOf = p => { let k = 0; while (k + 1 < kept.length && kept[k + 1] <= p) k++; return k; };
+  /* puppet：照輪到的人的畫面顯示（看得到他能點的牌和按鈕），但不會真的送出 */
+  view = new GameView(def, main, { mySeat: null, spectate: true, puppet: true, specTag: '示範對局', noOverModal: true, send: () => Promise.resolve({ ok: true }) });
+  let cur = -1, playing = false;
   const saved = Store.get('demoRate', '0.6');
   let rate = DEMO_SPEEDS.some(x => x[0] === saved) ? +saved : 0.6;
   const narrStep = h('span', { class: 'dn-step' }), narrMsg = h('div', { class: 'dn-msg' }), narrTeach = h('div', { class: 'dn-teach' });
   narr.replaceChildren(narrStep, h('div', { class: 'dn-body' }, narrMsg, narrTeach));
-  const show = i => {
-    i = clamp(i, 0, frames.length - 1);
-    if (i === cur) return;
-    cur = i;
-    const st = frames[i].st, k = stepOf(i);
+  const show = p => {
+    p = clamp(p, 0, seq.length - 1);
+    if (p === cur) return;
+    cur = p;
+    const it = seq[p], st = frames[it.fi].st, k = stepOf(p);
     view.update(st);
-    narrStep.textContent = `第 ${k + 1} / ${steps.length} 步`;
-    if (st.over) {
-      narrMsg.innerHTML = `<b>${st.result.title}</b>`;
-      narrTeach.innerHTML = st.result.note || '';
-    } else {
-      narrMsg.innerHTML = st.msg ? st.msg.html : '';
-      narrTeach.innerHTML = def.teach ? def.teach(st) : '';
-    }
+    narrStep.textContent = `第 ${k + 1} / ${kept.length} 步`;
+    if (it.bridge) { narrMsg.innerHTML = `（略過 ${it.bridge} 個重複的步驟）`; narrTeach.innerHTML = ''; }
+    else if (st.over) { narrMsg.innerHTML = `<b>${st.result.title}</b>`; narrTeach.innerHTML = st.result.note || ''; }
+    else { narrMsg.innerHTML = st.msg ? st.msg.html : ''; narrTeach.innerHTML = def.teach ? def.teach(st) : ''; }
     slider.value = String(k);
-    playBtn.textContent = playing && i < frames.length - 1 ? '❚❚ 暫停' : '▶ 播放';
   };
-  const go = k => { k = clamp(k, 0, steps.length - 1); playing = false; t = frames[steps[k].i].t; cur = -1; show(steps[k].i); };
+  const refresh = () => { playBtn.textContent = playing ? '❚❚ 暫停' : '▶ 播放'; };
+  const speed = () => ({ move: clamp(Math.round(650 * 0.6 / rate), 350, 1100), press: clamp(Math.round(420 * 0.6 / rate), 220, 700) });
+  /* 照錄製時的遊戲節奏播放；每一步前先讓游標移過去點一下 */
+  const play = async tk => {
+    while (alive && tk === token && cur < seq.length - 1) {
+      const next = cur + 1, fa = seq[cur].fi, fb = seq[next].fi, adjacent = fb === fa + 1;
+      await new Promise(r => setTimeout(r, adjacent ? Math.min(6000, Math.max(0, frames[fb].t - frames[fa].t) / rate) : 1200));
+      if (tk !== token || !alive) return;
+      const els = adjacent ? demoTargets(meta.id, frames[fa].st, frames[fb].st, main) : [];
+      const st = frames[fa].st, actor = st.seats[view.seat] || st.seats[st.turn];
+      if (els.length) await demoClick(els, speed(), () => tk === token && alive, actor ? seatLabel(actor) : '');
+      if (tk !== token || !alive) return;
+      show(next);
+    }
+    if (tk === token) { playing = false; refresh(); }
+  };
+  const start = () => { playing = true; refresh(); play(++token); };
+  const stop = () => { playing = false; token++; refresh(); };
+  const go = k => { stop(); k = clamp(k, 0, kept.length - 1); show(kept[k]); };
   const playBtn = h('button', { type: 'button', class: 'btn primary small', onclick: () => {
-    if (cur >= frames.length - 1) { t = 0; cur = -1; }
-    playing = !playing; const i = cur; cur = -1; show(Math.max(0, i));
+    if (playing) { stop(); return; }
+    if (cur >= seq.length - 1) { cur = -1; show(0); }
+    start();
   } }, '❚❚ 暫停');
-  const slider = h('input', { type: 'range', class: 'demo-range', min: '0', max: String(steps.length - 1), value: '0', step: '1', 'aria-label': '示範進度',
-    oninput: e => go(+e.target.value) });
+  const slider = h('input', { type: 'range', class: 'demo-range', min: '0', max: String(kept.length - 1), value: '0', step: '1', 'aria-label': '示範進度', oninput: e => go(+e.target.value) });
   const rateSeg = () => seg('播放速度', DEMO_SPEEDS, String(rate), v => { rate = +v; Store.set('demoRate', v); ctl.querySelector('.seg').replaceWith(rateSeg()); }, 'demo-rate');
   const ctl = h('div', { class: 'demo-ctl' },
-    h('button', { type: 'button', class: 'btn small', title: '上一步', onclick: () => go(stepOf(cur) - 1) }, '‹ 上一步'),
+    h('button', { type: 'button', class: 'btn small', onclick: () => go(stepOf(cur) - 1) }, '‹ 上一步'),
     playBtn,
-    h('button', { type: 'button', class: 'btn small', title: '下一步', onclick: () => go(stepOf(cur) + 1) }, '下一步 ›'),
+    h('button', { type: 'button', class: 'btn small', onclick: () => go(stepOf(cur) + 1) }, '下一步 ›'),
     slider, rateSeg(),
     h('button', { type: 'button', class: 'btn ghost small', onclick: () => showDemo(meta) }, '換一局'));
   game.append(ctl);
   show(0);
-  /* 照錄製時的遊戲節奏播放；rate 越小越慢 */
-  timer = setInterval(() => {
-    if (!alive || !playing) return;
-    t += 100 * rate;
-    let i = cur;
-    while (i + 1 < frames.length && frames[i + 1].t <= t) i++;
-    if (i !== cur) show(i);
-    if (cur >= frames.length - 1) { playing = false; const j = cur; cur = -1; show(j); }
-  }, 100);
+  start();
 }
 
 /* ---------- 第一步：遊戲介紹（規則、人數、每手限時） ---------- */
