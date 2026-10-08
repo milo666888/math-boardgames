@@ -740,6 +740,9 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 @keyframes demoRing { from { transform: scale(.2); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
 .demo-hit { outline: 4px solid var(--gold) !important; outline-offset: 3px; box-shadow: 0 0 0 9px rgba(242,182,50,.35) !important; }
 .pc.demo-hit { transform: translateY(-8px); }
+.home-btn { justify-self: start; text-decoration: none; }
+.joinwrap { width: min(460px, calc(100% - 32px)); margin: 40px auto; display: grid; gap: 14px; }
+.joinwrap .joinform { width: auto; margin: 0; }
 
 </style>
 </head>
@@ -3256,6 +3259,8 @@ const myRole = () => SS.get('role');
 const myNo = () => String((Store.get('me', {}) || {}).no || '');
 const saveNo = no => Store.set('me', { no });
 function setRole(role) { SS.set('role', role); route(); }
+/* 回首頁重新選身分（選錯時用） */
+function backHome() { SS.set('role', null); goHub(); }
 
 /* ---------- 不小心退出：最快回來 ----------
    玩家：加入成功就記下房號＋座號；同一個分頁重新整理會自動連回，關掉再開時首頁有「回到遊戲室」。
@@ -3266,20 +3271,20 @@ const lastRoom = () => { const r = Store.get('lastRoom', null); return r && Date
 const hostSave = () => { const r = Store.get('hostSave', null); return r && Date.now() - r.t < REJOIN_MS && metaOf(r.id) ? r : null; };
 function forgetRoom() { Store.set('lastRoom', null); SS.set('inRoom', null); }
 function forgetHost() { Store.set('hostSave', null); SS.set('hosting', null); }
-function rejoinBanners() {
+function rejoinBanners(which = 'all') {
   const out = [];
-  const hs = hostSave();
+  const hs = which === 'player' ? null : hostSave();
   if (hs) {
     out.push(h('div', { class: 'rejoin' },
       h('span', {}, `你主持的遊戲室 ${hs.code}（${metaOf(hs.id).name}${hs.phase === 'game' && hs.game && hs.game.state && !hs.game.state.over ? '，遊戲進行中' : ''}）還沒結束`),
       h('button', { class: 'btn primary', type: 'button', onclick: () => { SS.set('role', hs.role || 'teacher'); restoreHost(hs); } }, '回到遊戲室'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => { forgetHost(); route(); } }, '不用了')));
   }
-  const lr = lastRoom();
+  const lr = which === 'host' ? null : lastRoom();
   if (lr && !(hs && hs.code === lr.code)) {
     out.push(h('div', { class: 'rejoin' },
       h('span', {}, `你剛剛在遊戲室 ${lr.code}（${lr.no} 號）`),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => { SS.set('role', 'student'); quickJoin(lr.code, lr.no); } }, '回到遊戲室'),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => { SS.set('role', 'student'); quickJoin(lr.code, lr.no); } }, '回到遊戲'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => { forgetRoom(); route(); } }, '不用了')));
   }
   return out;
@@ -3296,7 +3301,7 @@ function showWelcome() {
     h('p', { class: 'welcome-q' }, '你是？'),
     h('div', { class: 'roles' },
       card('teacher', '我是主持人', ['投影遊戲規則給大家看', '播放電腦示範對局', '開設遊戲室，玩家輸入房號或掃 QR code 加入']),
-      card('student', '我是玩家', ['輸入房號和座號就能加入遊戲室', '先看規則，也可以自己開房間']))));
+      card('student', '我是玩家', ['輸入房號和座號就能加入遊戲', '不小心離開，也能一鍵回到遊戲']))));
 }
 
 /* 玩家加入：房號＋座號，按一下就連 */
@@ -3318,13 +3323,13 @@ function joinFields(code, onDone) {
   return { form, status, codeIn, noIn };
 }
 
-/* ---------- 大廳 ---------- */
+/* ---------- 大廳（主持人）：玩家選了身分就直接到「加入遊戲」頁，不會看到遊戲列表、不能開房 ---------- */
 function showHub() {
   const role = myRole();
   if (!role) { showWelcome(); return; }
+  if (role !== 'teacher') { showJoin(''); return; }
   clearApp();
   SS.set('inRoom', null); SS.set('hosting', null);
-  const teacher = role === 'teacher';
   const tile = m => h('article', { class: 'tile' },
     h('span', { class: 'tile-art' }, m.art()),
     h('span', { class: 'tile-text' },
@@ -3334,20 +3339,18 @@ function showHub() {
       h('span', { class: 'tile-meta' }, `${m.seats[0] === m.seats[1] ? '2 隊' : `${m.seats[0]}–${m.seats[1]} 人`} · 總耗時約 ${m.opts.find(o => o.key === 'time').def} 分鐘`)),
     h('div', { class: 'tile-btns' },
       h('button', { type: 'button', class: 'btn small', onclick: () => showRules(m) }, '規則'),
-      teacher ? h('a', { class: 'btn small', href: `#demo-${m.id}` }, '示範對局') : null,
-      h('a', { class: 'btn small primary', href: `#g-${m.id}` }, teacher ? '開設遊戲室' : '開房間')));
+      h('a', { class: 'btn small', href: `#demo-${m.id}` }, '示範對局'),
+      h('a', { class: 'btn small primary', href: `#g-${m.id}` }, '開設遊戲室')));
   const group = key => h('section', { class: `series s-${key}` },
     h('div', { class: 'series-head' },
       h('div', {}, h('h2', {}, SERIES[key].name), h('p', { class: 'series-desc' }, `單元：${SERIES[key].unit}。${SERIES[key].desc}`)),
       h('button', { class: 'btn ghost small', onclick: () => showReference(key) }, '卡牌對照表')),
     h('div', { class: 'tiles' }, META.filter(m => m.series === key).map(tile)));
-  const roleSeg = seg('身分', [['teacher', '主持人'], ['student', '玩家']], role, v => setRole(v), 'role');
-  let side;
-  if (teacher) side = h('div', { class: 'hub-side' }, roleSeg);
-  else { const j = joinFields(''); side = h('div', { class: 'hub-side' }, roleSeg, j.form, j.status); }
   App.root.append(h('div', { class: 'hub' },
-    h('header', { class: 'hub-head' }, h('div', { class: 'hub-title' }, h('h1', {}, '數學桌遊館')), side),
-    ...rejoinBanners(),
+    h('header', { class: 'hub-head' }, h('div', { class: 'hub-title' },
+      h('button', { type: 'button', class: 'btn ghost small home-btn', onclick: backHome }, '‹ 首頁'),
+      h('h1', {}, '數學桌遊館'))),
+    ...rejoinBanners('host'),
     group('ghost'), group('treasure')));
 }
 
@@ -3786,7 +3789,7 @@ function roomPanelEl() {
     h('div', { class: 'roomleft' },
       h('div', { class: 'roomcode' }, h('span', {}, '遊戲室房號'), h('b', {}, S.code)),
       h('div', { class: 'roomurl' }, h('code', {}, url), copy),
-      h('small', {}, '玩家在大廳輸入房號，或用手機相機掃 QR code 加入。這個畫面要保持開著，遊戲室才會存在。')),
+      h('small', {}, '玩家打開網站選「我是玩家」輸入房號和座號，或用手機相機掃 QR code 加入。這個畫面要保持開著，遊戲室才會存在。')),
     qrSVG(url) || h('p', { class: 'muted' }, 'QR code 載入失敗，請改用房號。'));
 }
 function setupToCfg() {
@@ -3964,11 +3967,13 @@ let CL = null;
 function showJoin(code, errText, auto = false) {
   clearApp();
   if (!myRole()) SS.set('role', 'student');
+  if (!auto) SS.set('inRoom', null);
   const j = joinFields(code);
   j.status.textContent = NET.available() ? (errText || '') : '這個頁面目前無法連線：請用網站網址開啟（例如掃 QR code）。';
   App.root.append(h('div', { class: 'joinpage' },
-    h('header', { class: 'gbar plain' }, h('button', { class: 'gbtn back', onclick: () => { goHub(); } }, '‹ 大廳'), h('div', { class: 'gtitle' }, h('b', {}, '數學桌遊館'))),
-    h('div', { class: 'panel joinform' }, h('h1', {}, '加入遊戲室'), j.form, j.status)));
+    h('header', { class: 'gbar plain' }, h('button', { class: 'gbtn back', onclick: backHome }, '‹ 首頁'), h('div', { class: 'gtitle' }, h('b', {}, '數學桌遊館'))),
+    h('div', { class: 'joinwrap' }, ...(auto ? [] : rejoinBanners('player')),
+      h('div', { class: 'panel joinform' }, h('h1', {}, '加入遊戲'), j.form, j.status))));
   if (auto) j.form.requestSubmit();
   else setTimeout(() => (code && !j.noIn.value ? j.noIn : code ? j.form.querySelector('.btn') : j.codeIn).focus(), 30);
 }
@@ -4021,7 +4026,7 @@ function clientMsg(cl, msg) {
   }
   if (msg.t === 'closed') {
     cl.rc.close(); forgetRoom();
-    modal({ title: '遊戲室已關閉', body: h('p', {}, '主持人已經關閉遊戲室。'), dismissible: false, actions: [{ label: '回大廳', primary: true, onClick: () => { goHub(); } }] });
+    modal({ title: '遊戲室已關閉', body: h('p', {}, '主持人已經關閉遊戲室。'), dismissible: false, actions: [{ label: '知道了', primary: true, onClick: () => { goHub(); } }] });
   }
 }
 function clientStatus(state, text) {
@@ -4057,6 +4062,7 @@ function goHub() { if (location.hash.length > 1) location.hash = ''; else route(
 function route() {
   const hash = decodeURIComponent(location.hash.slice(1));
   if (!myRole() && !hash.startsWith('join')) { showWelcome(); return; }
+  if (myRole() !== 'teacher' && (hash.startsWith('g-') || hash.startsWith('demo-'))) { showJoin(''); return; }
   if (hash.startsWith('g-') && metaOf(hash.slice(2))) { showSetup(metaOf(hash.slice(2))); return; }
   if (hash.startsWith('demo-') && metaOf(hash.slice(5))) { showDemo(metaOf(hash.slice(5))); return; }
   if (hash === 'join' || hash.startsWith('join=')) { if (!CL) showJoin(hash.slice(5)); return; }
