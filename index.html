@@ -749,6 +749,14 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .home-btn { justify-self: start; text-decoration: none; }
 .joinwrap { width: min(460px, calc(100% - 32px)); margin: 40px auto; display: grid; gap: 14px; }
 .joinwrap .joinform { width: auto; margin: 0; }
+.ret-manual { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 12px; }
+.ret-manual .hub-join .code-in { width: 5.4em; font-size: 1rem; padding: 5px 8px; }
+.ret-manual .hub-join .no-in { width: 4em; font-size: 1rem; padding: 5px 8px; }
+.ret-manual .hub-join .btn { padding: 6px 14px; font-size: .88rem; background: transparent; color: var(--text); border-color: var(--line); }
+.ret-manual .hub-join .btn:hover { border-color: var(--gold); }
+.ret-manual small { align-self: center; }
+.ret-manual .join-status { flex-basis: 100%; min-height: 0; }
+.ret-manual .join-status:empty { display: none; }
 
 </style>
 </head>
@@ -3312,8 +3320,10 @@ function showWelcome() {
     h('span', {}, `遊戲室 ${lr.code}（${lr.no} 號）`),
     h('button', { class: 'btn ghost small', type: 'button', onclick: () => { SS.set('role', 'student'); quickJoin(lr.code, lr.no); } }, '回到遊戲'),
     h('button', { class: 'linkbtn', type: 'button', onclick: () => { forgetRoom(); showWelcome(); } }, '不用了')));
-  const back = h('div', { class: 'ret-bar' }, h('span', { class: 'ret-label' }, '回到遊戲'),
-    items.length ? items : h('span', { class: 'muted' }, '這台裝置目前沒有進行中的遊戲'));
+  /* 換了裝置或清過資料也能回去：自己輸入房號＋座號，主持人會讓你回到原本的座位 */
+  const j = joinFields('', null, '回到遊戲');
+  const back = h('div', { class: 'ret-bar' }, h('span', { class: 'ret-label' }, '回到遊戲'), ...items,
+    h('div', { class: 'ret-manual' }, j.form, h('small', { class: 'muted' }, '輸入房號和座號，回到原本的座位'), j.status));
   App.root.append(h('div', { class: 'hub welcome' },
     h('div', { class: 'hub-title' }, h('h1', {}, '數學桌遊館')),
     h('div', { class: 'roles' },
@@ -3324,17 +3334,18 @@ function showWelcome() {
 
 
 /* 玩家加入：房號＋座號，按一下就連 */
-function joinFields(code, onDone) {
+function joinFields(code, onDone, btnLabel = '加入') {
   const codeIn = h('input', { class: 'code-in', inputmode: 'numeric', maxlength: '4', placeholder: '房號', value: code || '', 'aria-label': '房號' });
   const noIn = h('input', { class: 'no-in', inputmode: 'numeric', maxlength: '3', placeholder: '座號', value: myNo(), 'aria-label': '座號' });
   const status = h('p', { class: 'join-status', role: 'status' });
-  const go = h('button', { class: 'btn primary', type: 'submit' }, '加入');
+  const go = h('button', { class: 'btn primary', type: 'submit' }, btnLabel);
   const form = h('form', { class: 'hub-join', onsubmit: async e => {
     e.preventDefault();
     const c = codeIn.value.trim(), no = noIn.value.trim();
     if (!/^\d{4}$/.test(c)) { status.textContent = '房號是 4 位數字。'; codeIn.focus(); return; }
     if (!no) { status.textContent = '請輸入座號。'; noIn.focus(); return; }
     if (!NET.available()) { status.textContent = '這個頁面目前無法連線：請用網站網址開啟。'; return; }
+    if (!myRole()) SS.set('role', 'student');   // 從首頁「回到遊戲」直接輸入時，以玩家身分加入
     saveNo(no);
     go.disabled = true; status.textContent = '連線中…';
     try { await joinRoom(c, { no }); if (onDone) onDone(); } catch (err) { status.textContent = err.message; go.disabled = false; }
