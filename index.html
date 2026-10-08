@@ -553,7 +553,7 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   .gmain.cardgame .center { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 16px; }
   .gmain.cardgame .msg { flex: none; min-height: 0; padding: 7px 14px; line-height: 1.5; }
   .gmain.cardgame .note { flex: none; }
-  .gmain.cardgame .me { flex: 0 1 auto; min-height: 0; max-height: 44%; display: flex; flex-direction: column; }
+  .gmain.cardgame .me { flex: 0 1 auto; min-height: 0; max-height: 56%; display: flex; flex-direction: column; }
   .gmain.cardgame .me > * { flex: none; }
   .gmain.cardgame .hand { flex: 0 1 auto; overflow: auto; min-height: 0; padding-top: 10px; align-content: flex-start; }
   .gmain.cardgame .reclaim { flex: none; }
@@ -619,6 +619,68 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .modal.present .rules h3 { font-size: 1.5rem; }
 .modal.present .modal-head h2 { font-size: 1.6rem; }
 @media (max-width: 720px) { .hub-side { justify-items: start; } }
+
+/* ===== 全站試玩後修訂 ===== */
+/* 等候室：電腦上左右兩欄，房號與 QR code 放大方便投影 */
+.setup-grid.lobby { grid-template-columns: minmax(0, 720px); justify-content: center; }
+.lobby-room { padding: 0; overflow: hidden; }
+.lobby-room .roompanel { border: 0; border-radius: 0; }
+@media (min-width: 900px) {
+  .setup-grid.lobby { grid-template-columns: minmax(300px, 400px) minmax(0, 660px); }
+  .lobby-room { position: sticky; top: 16px; }
+  .lobby-room .roompanel { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; padding: 22px; }
+  .lobby-room .roomleft { justify-items: center; }
+  .lobby-room .roomcode b { font-size: clamp(3.2rem, 6vw, 4.4rem); }
+  .lobby-room .roomurl { justify-content: center; }
+  .lobby-room .qr { width: min(300px, 100%); height: auto; aspect-ratio: 1; order: -1; }
+}
+/* 鍵盤提示：觸控裝置不顯示 */
+.kbd-hint { color: var(--text-3); font-size: .85em; margin-left: .3em; }
+@media (hover: none) { .kbd-hint { display: none; } }
+/* 「放到海底」空位：字依牌的大小縮放，不會被拆行 */
+.dropslot b { font-size: calc(var(--cw) * .19); white-space: nowrap; }
+.dropslot small { font-size: calc(var(--cw) * .15); white-space: nowrap; }
+/* 平板直式：牌放大一點 */
+@media (min-width: 600px) and (max-width: 899px) {
+  :root { --cw: clamp(64px, 9.5vw, 92px); }
+  /* 勝者為王：圖紙限制高度，下面看得到步驟與手牌 */
+  .board.king { width: auto; height: 54vh; max-width: 100%; }
+}
+/* 手機與平板直式：勝者為王面板改成先看訊息、步驟、手牌，隊伍資訊放最後 */
+@media (max-width: 899px) {
+  .bpanel { display: flex; flex-direction: column; gap: 10px; }
+  .bpanel > .msg { order: 1; } .bpanel > .note { order: 2; } .bpanel > .brow { order: 3; }
+  .bpanel > .bhand-head { order: 4; } .bpanel > .bhand { order: 5; } .bpanel > .bteams { order: 6; }
+}
+/* 手機 */
+@media (max-width: 720px) {
+  /* 標題列：不黏在頂端、縮成兩行，把畫面留給牌桌 */
+  .gbar { position: static; padding: 8px 12px; gap: 6px 8px; }
+  .gbtn { padding: 4px 10px; font-size: .82rem; }
+  .gtitle b { font-size: 1.05rem; }
+  .gseries { font-size: .66rem; }
+  .gclock small { display: none; }
+  .gclock { padding: 3px 10px; }
+  .roomchip { font-size: .88rem; padding: 3px 10px; letter-spacing: .08em; }
+  .gbar-actions { width: 100%; justify-content: flex-end; }
+  /* 對手座位：縮小，兩個並排 */
+  .seats { justify-content: flex-start; gap: 6px; }
+  .seat { flex: 1 1 140px; max-width: calc(50% - 3px); padding: 5px 10px 7px 5px; gap: 7px; border-radius: 12px; }
+  .seat .avatar { width: 28px; height: 28px; font-size: .8rem; }
+  .seat-text b { font-size: .88rem; }
+  .seat-line { font-size: .74rem; }
+  .seat .tag:not(.warn) { display: none; }
+  /* 我的手牌固定在畫面下方：選手牌、點牌桌不用來回捲 */
+  .gmain.cardgame .me { position: sticky; bottom: 0; z-index: 6; max-height: 46vh; overflow-y: auto; box-shadow: 0 -10px 24px rgba(0,0,0,.5); }
+  .gmain.cardgame:has(.center.quick) .me, .gmain.cardgame:has(.center.speed) .me { position: static; max-height: none; box-shadow: none; }
+  /* 訊息列移到牌桌上方，才不會被下方的手牌區蓋住 */
+  .gmain.cardgame { display: flex; flex-direction: column; }
+  .gmain.cardgame > .topline { order: -3; }
+  .gmain.cardgame > .reclaim { order: -4; }
+  .gmain.cardgame > .msg { order: -2; }
+  .gmain.cardgame > .note { order: -1; }
+  .gmain.cardgame > .note:empty { display: none; }
+}
 
 </style>
 </head>
@@ -1155,7 +1217,7 @@ function modal({ title, body, actions = [], wide = false, dismissible = true, cl
   document.addEventListener('keydown', onKey);
   if (dismissible) back.addEventListener('click', e => { if (e.target === back) close(); });
   const first = box.querySelector('.modal-actions .primary');
-  if (first) setTimeout(() => first.focus(), 30);
+  if (first) setTimeout(() => first.focus({ preventScroll: true }), 30);   // 長內容（規則）打開時要從頂端開始看
   return { close, box };
 }
 function confirmBox(title, text, okLabel, onOk) {
@@ -1415,8 +1477,21 @@ class GameView {
     }
     const w = s.wait.find(x => x.seat === this.seat);
     const key = w ? `${w.id}` : `none-${s.phase}`;
-    if (key !== this.uiKey) { this.uiKey = key; this.ui = {}; this.noteHTML = ''; }
+    const fresh = key !== this.uiKey;
+    if (fresh) { this.uiKey = key; this.ui = {}; this.noteHTML = ''; }
     this.render();
+    if (fresh && w && !this.o.spectate && !s.over) this.autoFocus();
+  }
+  /* 小螢幕會捲動：輪到自己時把要操作的地方捲到眼前（大螢幕整個畫面放得下，不用捲） */
+  autoFocus() {
+    if (innerWidth >= 900 && innerHeight >= 560) return;
+    const el = this.root.querySelector('.autofocus') || this.root.querySelector('.center, .board');
+    if (!el) return;
+    const bar = document.querySelector('.gbar');
+    const hdr = bar && getComputedStyle(bar).position === 'sticky' ? bar.offsetHeight : 0;
+    const top = el.getBoundingClientRect().top;
+    if (top >= hdr && top <= innerHeight * 0.45) return;
+    window.scrollTo(0, Math.max(0, window.scrollY + top - hdr - 8));
   }
   render() {
     if (!this.state) return;
@@ -1824,7 +1899,7 @@ function oldMaidDef(k) {
       seats.forEach((st, i) => { if (st.ai) autoAll(s, i); });
       s.lastPair = null; s.lastTotal = s.total; s.show = { type: 'intro' };
       s.wait = seats.map((st, i) => i).filter(i => !seats[i].ai).map(seat => ({ seat, kind: 'prepair' }));
-      if (s.wait.length) { s.phase = 'prepair'; sayS(s, `發牌完成。先把手上能配對的牌找出來（${k.intro}），整理好按「整理好了」；大家都好了就開始抽牌。`, 'turn'); }
+      if (s.wait.length) { s.phase = 'prepair'; sayS(s, '發牌完成，先整理手牌。', 'turn'); }
       else setWaits(s);
       return s;
     },
@@ -2144,7 +2219,8 @@ function fishingDef(k) {
       }) : null;
       const actions = [];
       const line = i => `${s.hands[i].length} 張 · ${k.mode === 'green' ? `能源 ${score(s, i)} 分` : `配對 ${score(s, i)} 組`}`;
-      cardFrame(v, s, { seatLine: line, meLine: me != null ? line(me) : '', center, centerClass: 'fish', hand, actions });
+      const status = playing ? ' · <b>輪到你出牌</b>' : matching ? ' · <b>翻出的牌要配對嗎？</b>' : '';
+      cardFrame(v, s, { seatLine: line, meLine: me != null ? line(me) + status : '', center, centerClass: 'fish', hand, actions });
     },
   });
 }
@@ -2292,7 +2368,7 @@ defineGame({
       center = h('div', { class: 'qstage' },
         h('div', { class: 'qcard' }, cardEl(c, { size: 'lg' })),
         h('div', { class: 'qask' },
-          h('p', { class: 'qwho' }, answering ? '換你作答！（可按數字鍵 1～4）' : s.phase === 'answer' ? `${L(s.q)} 作答中…` : '答案揭曉'),
+          h('p', { class: 'qwho' }, answering ? '換你作答！' : s.phase === 'answer' ? `${L(s.q)} 作答中…` : '答案揭曉', answering ? h('span', { class: 'kbd-hint' }, '（可按數字鍵 1～4）') : null),
           h('p', { class: 'qprompt' }, c.kind === 'trig' ? '這張三角函數卡的值是？' : '哪一個三角函數等於這張數值卡？'),
           qw && qw.remain != null ? v.timerBar(qw, true) : null,
           h('div', { class: 'qopts' }, btns)));
@@ -2487,7 +2563,8 @@ defineGame({
       s.hold = 2200; this.nextTurn(s); return;
     }
     s.phase = 'dir';
-    sayS(s, `${T} 擲出 ${n}。${opts.length > 1 ? '兩個方向任選一個。' : '確認落點。'}`, 'turn');
+    const okOpts = opts.filter(o => o.ok);
+    sayS(s, `${T} 擲出 ${n}。${okOpts.length > 1 ? '兩個方向任選一個。' : opts.length > 1 ? `另一個方向走不了，只能${okOpts[0].label}。` : '確認落點。'}`, 'turn');
     s.wait = [{ seat, kind: 'dir' }];
   },
   potential(s, seat, Q) {
@@ -2589,7 +2666,7 @@ defineGame({
       if (gh.ok && w && w.kind === 'dir') { grp.append(sv('circle', { cx, cy, r: 0.65, class: 'hit' })); svgClickable(grp, () => v.send({ type: 'dir', i: gh.i }), gh.label); }
       g.push(grp);
     });
-    const svgEl = sv('svg', { class: 'board king', viewBox: `${-W - 0.8} ${-H - 0.9} ${2 * W + 1.6} ${2 * H + 1.8}`, role: 'img', 'aria-label': '勝者為王圖紙' }, g);
+    const svgEl = sv('svg', { class: 'board king' + (w && (w.kind === 'dir' || w.kind === 'close') ? ' autofocus' : ''), viewBox: `${-W - 0.8} ${-H - 0.9} ${2 * W + 1.6} ${2 * H + 1.8}`, role: 'img', 'aria-label': '勝者為王圖紙' }, g);
 
     /* 右側面板 */
     const sc = this.scores(s);
@@ -2624,7 +2701,7 @@ defineGame({
     const panel = h('aside', { class: 'bpanel' }, teamsEl,
       h('div', { class: 'msg ' + (s.msg ? s.msg.kind : ''), role: 'status', 'aria-live': 'polite', html: s.msg ? s.msg.html : '' }),
       h('div', { class: 'note', html: v.noteHTML }),
-      h('div', { class: 'brow' }, dieBox, h('div', { class: 'bstep', html: step })),
+      h('div', { class: 'brow' + (w && w.kind === 'choose' ? ' autofocus' : '') }, dieBox, h('div', { class: 'bstep', html: step })),
       actions.length ? h('div', { class: 'actions bact' }, actions.map(btnEl)) : null,
       h('div', { class: 'bhand-head' },
         myTeam ? h('b', {}, `${TEAM_NAMES[me]}的手牌${v.o.spectate ? `（${v.o.specTag || '主持人觀看中'}）` : ''}`) : h('b', {}, '你正在觀戰'),
@@ -2778,7 +2855,7 @@ defineGame({
       h('small', {}, s.call ? `${s.phase === 'call' ? '上一位 ' : ''}${L(s.call.seat)} 喊` : '還沒有人喊'));
     let body;
     if (w && w.kind === 'call') {
-      body = [h('p', { class: 'qwho' }, '輪到你：翻開最上面的牌，同時喊一個數字（不能和上一位相同）'),
+      body = [h('p', { class: 'qwho' }, '輪到你：翻開最上面的牌，同時喊一個數字（不能和上一位相同）'), w.remain != null ? v.timerBar(w, true) : null,
         h('div', { class: 'sp-pad' }, ALL_VALUES.map((val, i) => h('button', {
           class: 'qopt sp-key', disabled: i === s.lastCall, onclick: () => v.send({ type: 'call', v: i }),
         }, h('span', { class: 'qopt-m', html: exHTML(val) }))))];
@@ -2790,7 +2867,7 @@ defineGame({
         if (ui.t0 == null) ui.t0 = performance.now();
         const slap = () => { if (ui.sent) return; ui.sent = true; v.send({ type: 'slap', rt: Math.round(performance.now() - ui.t0) }); };
         v.onKey = e => { if (e.code === 'Space' || e.key === ' ') { e.preventDefault(); slap(); } };
-        body = [h('button', { class: 'slapbtn', onclick: slap }, '拍！', h('small', {}, '空白鍵')), v.timerBar(w, true)];
+        body = [h('button', { class: 'slapbtn', onclick: slap }, '拍！', h('small', { class: 'kbd-hint' }, '空白鍵')), v.timerBar(w, true)];
       } else body = [h('p', { class: 'qwho' }, mine ? `你拍下了（${(mine.rt / 1000).toFixed(2)} 秒），等其他人…` : '搶拍中…')];
       if (s.slaps.length) body.push(h('div', { class: 'sp-slaps' }, s.slaps.map(x => h('span', { class: 'sp-chip', style: `--pc:${s.seats[x.seat].color}` }, `✋ ${L(x.seat)}`))));
     } else if (s.round) {
@@ -3141,7 +3218,7 @@ function renderIntro() {
     ? h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, '玩家'), h('p', { class: 'opt-fixed' }, '兩隊對戰：每隊一個座位，由同學或電腦擔任。'))
     : h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, '玩家人數'),
       seg('玩家人數', range(meta.seats[0], meta.seats[1]).map(n => [String(n), `${n} 人`]), S.total, v => { S.total = +v; renderIntro(); }, 'total'),
-      h('small', { class: 'opt-note' }, '按「開始遊戲」後會出現座位與房號，同學可以加入；人不夠的座位按「＋電腦」補上。'));
+      h('small', { class: 'opt-note' }, `按「${myRole() === 'teacher' ? '開設遊戲室' : '開房間'}」後會出現房號與座位，同學加入；人不夠的座位按「＋電腦」補上。`));
   const optRows = meta.opts.map(o => h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, o.label),
     seg(o.label, o.choices, S.opts[o.key], v => { S.opts[o.key] = v; renderIntro(); }, 'opt-' + o.key)));
   App.root.replaceChildren(h('div', { class: `setup s-${meta.series}` },
@@ -3151,7 +3228,7 @@ function renderIntro() {
         h('div', { class: 'setup-head' }, h('div', { class: 'setup-art' }, meta.art()),
           h('div', {}, h('p', { class: 'eyebrow' }, `${meta.tag} · 單元：${SERIES[meta.series].unit}`), h('h1', {}, meta.name), h('p', { class: 'setup-blurb' }, meta.blurb))),
         h('div', { class: 'options' }, totalRow, limitRowEl(S), optRows),
-        h('div', { class: 'setup-actions' }, h('button', { type: 'button', class: 'btn primary cta', onclick: enterLobby }, '開始遊戲 ›'))),
+        h('div', { class: 'setup-actions' }, h('button', { type: 'button', class: 'btn primary cta', onclick: enterLobby }, myRole() === 'teacher' ? '開設遊戲室 ›' : '開房間 ›'))),
       h('section', { class: 'panel setup-rules rules', 'aria-label': '遊戲規則' }, h('h2', {}, '遊戲規則'), h('div', { html: rulesHTML(meta.id) })))));
 }
 
@@ -3190,7 +3267,7 @@ function renderLobby() {
     let body;
     if (st.kind === 'human' && st.local) {
       body = [
-        h('input', { class: 'no-in', id: `seat-no-${i}`, value: st.no || '', placeholder: '座號', inputmode: 'numeric', maxlength: '3', 'aria-label': '座號', oninput: e => { st.no = e.target.value.trim(); hostBroadcastLobby(); } }),
+        myRole() === 'teacher' ? null : h('input', { class: 'no-in', id: `seat-no-${i}`, value: st.no || '', placeholder: '座號', inputmode: 'numeric', maxlength: '3', 'aria-label': '座號', oninput: e => { st.no = e.target.value.trim(); hostBroadcastLobby(); } }),
         h('input', { class: 'name-in', id: `seat-name-${i}`, value: st.name || '', placeholder: '姓名', maxlength: '12', 'aria-label': '姓名', oninput: e => { st.name = e.target.value.trim(); hostBroadcastLobby(); } }),
         h('em', { class: 'kind human' }, '主持人（你）'),
       ];
@@ -3216,9 +3293,9 @@ function renderLobby() {
   const canStart = !empties && !!S.code;
   App.root.replaceChildren(h('div', { class: `setup s-${meta.series}` },
     topBar(meta, { onBack: leaveLobby, backLabel: '‹ 返回', room: S.code }),
-    h('div', { class: 'setup-grid one' },
+    h('div', { class: 'setup-grid lobby' },
+      h('section', { class: 'panel lobby-room' }, roomPanelEl()),
       h('section', { class: 'panel setup-seats' },
-        roomPanelEl(),
         h('div', { class: 'panel-head' },
           h('h2', {}, meta.id === 'king' ? '兩隊座位' : `座位　${filled} / ${S.total} 人就位`),
           h('small', {}, limitText)),
@@ -3271,7 +3348,7 @@ function roomPanelEl() {
     h('div', { class: 'roomleft' },
       h('div', { class: 'roomcode' }, h('span', {}, '遊戲室房號'), h('b', {}, S.code)),
       h('div', { class: 'roomurl' }, h('code', {}, url), copy),
-      h('small', {}, '同學打開網址按「加入遊戲室」輸入房號，或用手機相機掃 QR code。這個畫面要保持開著，遊戲室才會存在。')),
+      h('small', {}, '同學在大廳輸入房號，或用手機相機掃 QR code 加入。這個畫面要保持開著，遊戲室才會存在。')),
     qrSVG(url) || h('p', { class: 'muted' }, 'QR code 載入失敗，請改用房號。'));
 }
 function setupToCfg() {
@@ -3524,7 +3601,7 @@ function clientWaiting(cl) {
     h('div', { class: 'setup-grid one' },
       h('section', { class: 'panel waitpanel' },
         h('h1', {}, cl.seat != null ? `你坐在第 ${cl.seat + 1} 個座位` : lb ? '座位已滿，你先觀戰' : '已連上遊戲室'),
-        h('p', { class: 'setup-blurb' }, '等主持人按「開始遊戲」，這個畫面保持開著就好。'),
+        h('p', { class: 'setup-blurb' }, '等主持人開始，這個畫面保持開著就好。'),
         lb ? h('p', { class: 'setup-meta' }, `${meta && meta.limitLabel ? meta.limitLabel : '每手限時'}：${lb.limit ? lb.limit + ' 秒' : '不限時'}`) : null,
         h('div', { class: 'seatlist' }, seats),
         meta ? h('button', { class: 'btn', onclick: () => showRules(meta) }, `先看「${meta.name}」的規則`) : null))));
