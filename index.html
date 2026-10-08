@@ -707,6 +707,8 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   /* 示範時上方有解說欄、下方有播放列，圖紙高度跟著縮 */
   .demo .board.king { width: min(calc((100vh - 290px) * .861), 52vw); }
 }
+.rules-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.rules-head .btn { text-decoration: none; }
 
 </style>
 </head>
@@ -3207,9 +3209,12 @@ function topBar(meta, extra = {}) {
       extra.noRules ? null : h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
       h('button', { class: 'gbtn', onclick: () => showReference(meta.series) }, '對照表')));
 }
-function showRules(meta) {
+/* withDemo：只有在大廳開的規則才放「看示範對局」（遊戲中、等候室按了會離開房間） */
+function showRules(meta, withDemo = false) {
   const present = Store.get('role') === 'teacher';   // 主持人：投影用大字
-  modal({ title: `${meta.name} · 遊戲規則`, wide: true, cls: present ? 'present' : '', body: h('div', { class: 'rules', html: rulesHTML(meta.id) }), actions: [{ label: '知道了', primary: true }] });
+  const actions = [{ label: '知道了', primary: true }];
+  if (withDemo) actions.unshift({ label: '看示範對局', ghost: true, onClick: () => { location.hash = `#demo-${meta.id}`; } });
+  modal({ title: `${meta.name} · 遊戲規則`, wide: true, cls: present ? 'present' : '', body: h('div', { class: 'rules', html: rulesHTML(meta.id) }), actions });
 }
 
 /* ---------- 身分與個人資料 ---------- */
@@ -3273,8 +3278,8 @@ function showHub() {
       h('span', { class: 'tile-blurb' }, m.blurb),
       h('span', { class: 'tile-meta' }, `${m.seats[0] === m.seats[1] ? '2 隊' : `${m.seats[0]}–${m.seats[1]} 人`} · 總耗時約 ${m.opts.find(o => o.key === 'time').def} 分鐘`)),
     h('div', { class: 'tile-btns' },
-      h('button', { type: 'button', class: 'btn small', onclick: () => showRules(m) }, '規則'),
-      teacher ? h('a', { class: 'btn small', href: `#demo-${m.id}` }, '示範對局') : null,
+      h('button', { type: 'button', class: 'btn small', onclick: () => showRules(m, true) }, '規則'),
+      h('a', { class: 'btn small', href: `#demo-${m.id}` }, '示範對局'),
       h('a', { class: 'btn small primary', href: `#g-${m.id}` }, teacher ? '開設遊戲室' : '開房間')));
   const group = key => h('section', { class: `series s-${key}` },
     h('div', { class: 'series-head' },
@@ -3468,7 +3473,9 @@ function renderIntro() {
           h('div', {}, h('p', { class: 'eyebrow' }, `${meta.tag} · 單元：${SERIES[meta.series].unit}`), h('h1', {}, meta.name), h('p', { class: 'setup-blurb' }, meta.blurb))),
         h('div', { class: 'options' }, totalRow, limitRowEl(S), optRows),
         h('div', { class: 'setup-actions' }, h('button', { type: 'button', class: 'btn primary cta', onclick: enterLobby }, myRole() === 'teacher' ? '開設遊戲室 ›' : '開房間 ›'))),
-      h('section', { class: 'panel setup-rules rules', 'aria-label': '遊戲規則' }, h('h2', {}, '遊戲規則'), h('div', { html: rulesHTML(meta.id) })))));
+      h('section', { class: 'panel setup-rules rules', 'aria-label': '遊戲規則' },
+        h('div', { class: 'rules-head' }, h('h2', {}, '遊戲規則'), h('a', { class: 'btn small', href: `#demo-${meta.id}` }, '看示範對局')),
+        h('div', { html: rulesHTML(meta.id) })))));
 }
 
 /* ---------- 第二步：座位（等玩家加入、＋電腦）與房號 ---------- */
