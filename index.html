@@ -2720,7 +2720,7 @@ defineGame({
     if (w.kind === 'choose') {
       if (a.type !== 'choose' || !t.hand.includes(a.card)) return { err: '請先從手牌選一張。' };
       const start = a.start == null ? t.cur : a.start;
-      if (t.free ? !t.pts.includes(start) : start !== t.cur) return { err: '出發點不正確。' };
+      if (!t.pts.includes(start)) return { err: '出發點不正確。' };   // 每一手都可以從己方任一個點出發（避免卡死）
       t.hand = t.hand.filter(x => x !== a.card);
       s.move = { card: a.card, start };
       s.wait = []; s.phase = 'roll'; s.rolling = true;
@@ -2734,8 +2734,8 @@ defineGame({
       const m = s.map, start = s.move.start;
       const qi = m.pts.length;
       m.pts.push({ x: o.Q.x, y: o.Q.y, owner: seat, label: this.label(s, t) });
-      t.pts.push(qi); m.edges.push({ a: start, b: qi, owner: seat }); t.cur = qi; t.free = false;
-      sayS(s, `${meta.timeout ? `⏰ ${T} 超時，隨機選方向：` : `${T} `}從 ${m.pts[start].label} 移動到 ${m.pts[qi].label}。`, meta.timeout ? 'bad' : '');
+      t.pts.push(qi); m.edges.push({ a: start, b: qi, owner: seat }); t.cur = qi; t.free = false; s.voidRun = 0;
+      sayS(s, `${meta.timeout ? `⏰ ${T} 超時，隨機選方向：` : `${T} `}${meta.auto ? '自動' : ''}從 ${m.pts[start].label} 移動到 ${m.pts[qi].label}。`, meta.timeout ? 'bad' : '');
       const cands = mapCloseCands(m, t.pts, start, qi);
       if (cands.length) { s.move.qi = qi; s.move.cands = cands; s.phase = 'close'; s.wait = [{ seat, kind: 'close' }]; return; }
       s.wait = []; s.hold = 800; this.nextTurn(s);
@@ -2758,6 +2758,7 @@ defineGame({
     return { err: '無法執行這個動作。' };
   },
   step(s, a) {
+    if (a.kind === 'automove') { this.act(s, a.seat, { type: 'dir', i: a.i }, { seat: a.seat, kind: 'dir' }, { auto: true }); return; }
     if (a.kind !== 'roll') return;
     const seat = s.turn, t = s.teams[seat], T = this.team(s, seat);
     const n = 1 + rand(6), card = C(s.move.card), start = s.move.start;
@@ -2767,15 +2768,25 @@ defineGame({
     const A = s.map.pts[start];
     const opts = kingMoves(t.flip, card, n).map(o => { const Q = { x: A.x + o.dx, y: A.y + o.dy }; return { dx: o.dx, dy: o.dy, Q, label: dirName(o), ...this.check(s, start, Q) }; });
     s.move.opts = opts;
-    if (!opts.length) { sayS(s, `${T} 擲出 ${n}：位移為 0，原地不動，這張牌作廢。`, 'bad'); s.hold = 2000; this.nextTurn(s); return; }
-    if (!opts.some(o => o.ok)) {
-      t.free = true;  // 補救規則：無處可走，下一手可任選己方的點重新出發
-      sayS(s, `${T} 擲出 ${n}：無法移動（${[...new Set(opts.map(o => o.reason))].join('；')}），這張牌作廢、留在原地。下一手可以改從任一個己方的點出發。`, 'bad');
-      s.hold = 2200; this.nextTurn(s); return;
-    }
+    /* 沒走成功：牌收回手上（不收走，避免卡死）；雙方連續 8 手都沒走成功就結算 */
+    const fail = text => {
+      t.hand.push(s.move.card);
+      s.voidRun = (s.voidRun || 0) + 1;
+      sayS(s, `${T} 擲出 ${n}：${text}，這張牌收回手上。`, 'bad');
+      if (s.voidRun >= 8) { this.finish(s, '雙方連續 8 手都沒有走成功，'); return; }
+      s.hold = 2000; this.nextTurn(s);
+    };
+    if (!opts.length) { fail('位移為 0，原地不動'); return; }
+    if (!opts.some(o => o.ok)) { fail(`無法移動（${[...new Set(opts.map(o => o.reason))].join('；')}）`); return; }
     s.phase = 'dir';
     const okOpts = opts.filter(o => o.ok);
-    sayS(s, `${T} 擲出 ${n}。${okOpts.length > 1 ? '兩個方向任選一個。' : opts.length > 1 ? `另一個方向走不了，只能${okOpts[0].label}。` : '確認落點。'}`, 'turn');
+    if (okOpts.length === 1) {
+      /* 只有一個方向能走：不用點，看一下骰子後自動走出去 */
+      sayS(s, `${T} 擲出 ${n}，只有一個方向能走，自動移動。`, 'turn');
+      s.auto = { kind: 'automove', delay: 1100, seat, i: opts.indexOf(okOpts[0]) };
+      return;
+    }
+    sayS(s, `${T} 擲出 ${n}。兩個方向任選一個。`, 'turn');
     s.wait = [{ seat, kind: 'dir' }];
   },
   potential(s, seat, Q) {
@@ -2801,7 +2812,7 @@ defineGame({
   ai(s, seat, w) {
     const t = s.teams[seat], lv = s.seats[seat].level;
     if (w.kind === 'choose') {
-      let starts = t.free ? t.pts.slice() : [t.cur];
+      let starts = t.pts.slice();
       if (starts.length > 6) starts = starts.sort((a, b) => this.potential(s, seat, s.map.pts[b]) - this.potential(s, seat, s.map.pts[a])).slice(0, 6);
       const noise = { easy: 2.5, normal: 0.7, hard: 0.05 }[lv] || 0.7;
       let best = null;
@@ -2860,7 +2871,7 @@ defineGame({
     if (w && w.kind === 'choose' && ui.start == null) ui.start = myTeam.cur;
     let ghosts = [], from = null, click = null, onPoint = null, mark = null, preview = null, previewLine = null;
     if (s.move && s.move.opts && (s.phase === 'dir')) { from = s.move.start; ghosts = s.move.opts.map((o, i) => ({ ...o, i })); }
-    if (w && w.kind === 'choose' && myTeam.free) { click = new Set(myTeam.pts); onPoint = i => { ui.start = i; v.render(); }; }
+    if (w && w.kind === 'choose') { click = new Set(myTeam.pts); onPoint = i => { ui.start = i; v.render(); }; }
     if (w && w.kind === 'close') {
       click = new Set(s.move.cands); mark = click; onPoint = i => { ui.R = i; v.render(); };
       if (ui.R != null) { preview = mapPoly(m, mapCycle(m, me, s.move.start, ui.R, s.move.qi)); previewLine = [s.move.qi, ui.R]; }
@@ -2920,7 +2931,7 @@ defineGame({
     if (s.rolling) v.rollTimer = setInterval(() => setDie(die, 1 + rand(6)), 90);
     const dieBox = h('div', { class: 'diebox' }, die, s.rolling ? h('small', {}, '擲骰中…') : s.die ? h('small', {}, `擲出 ${s.die}`) : null);
     let step = KING_MOVE_TABLE;
-    if (w && w.kind === 'choose') step = ui.card ? kingRule(C(ui.card)) : `選一張牌${myTeam.free ? '，也可以點選任一個己方的點當新的出發點' : ''}，再按「擲骰子」。`;
+    if (w && w.kind === 'choose') step = ui.card ? kingRule(C(ui.card)) : '選一張牌，再按「擲骰子」。也可以先點圖紙上任一個己方的點，從那裡出發。';
     else if (s.move && s.move.explain) step = fl === -1 ? s.move.explain.replace(/<small>[\s\S]*?<\/small>/, '') : s.move.explain;   // 第二隊自己看時圖紙已轉正，不需要「以 P2 的角度看」
     else if (s.move && s.move.card) step = `出牌：${cardInline(C(s.move.card))}`;
     const actions = [];
@@ -3197,7 +3208,7 @@ const RULES = {
       '兩隊對戰，第一隊從 P1、第二隊從 P2 出發。輪到你：選一張牌，再按「擲骰子」得到 n。',
       `依牌移動到新的點，並和前一點連線：${KING_MOVE_TABLE}`,
       '線段不能和已畫的線相交；新點能和舊點圍成封閉區域時，可以再加連一條線。',
-      '圍出封閉區域、或這一手無處可走時，下一手可以改從任一個己方的點出發。',
+      '每一手都可以選任一個己方的點出發；擲骰後只有一個方向能走時會自動移動；沒走成功時，這張牌收回手上。',
     ],
     win: '牌出完時，封閉區域圈住寶物較多的隊伍贏。',
   },
@@ -3509,8 +3520,11 @@ function demoTargets(id, a, b, root) {
     if (a.phase === 'pick' && b.phase === 'answer') out.push(middle(qa('.drawrow .pc')));
     if (a.phase === 'answer' && b.phase === 'reveal' && b.answer && b.answer.choice >= 0) out.push(qa('.qopt')[b.answer.choice]);
   } else if (id === 'king') {
-    if (a.phase === 'choose' && b.phase === 'roll' && b.move) out.push(card('.bhand', b.move.card), q('.bact .btn'));
-    if (a.phase === 'dir' && b.phase !== 'dir' && a.move && a.move.opts && b.map.pts.length > a.map.pts.length) {
+    if (a.phase === 'choose' && b.phase === 'roll' && b.move) {
+      if (b.move.start !== a.teams[a.turn].cur) out.push(qa('.pt')[b.move.start]);   // 換了出發點：先點那個點
+      out.push(card('.bhand', b.move.card), q('.bact .btn'));
+    }
+    if (a.phase === 'dir' && a.wait.some(x => x.kind === 'dir') && b.phase !== 'dir' && a.move && a.move.opts && b.map.pts.length > a.map.pts.length) {   // 只有一個方向時是自動走，不畫點擊
       const P = b.map.pts[b.map.pts.length - 1];
       const i = a.move.opts.findIndex(o => Math.abs(o.Q.x - P.x) < 1e-6 && Math.abs(o.Q.y - P.y) < 1e-6);
       if (i >= 0) out.push(qa('.ghost-pt')[i]);
