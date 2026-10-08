@@ -24,12 +24,13 @@
   --paper-line: #dad2c1;
   --gold: #f2b632;
   --gold-2: #ffd98a;
-  --wine: #a8222f;
-  --wine-table: #2b1c20;
-  --wine-line: #4a2c32;
-  --indigo: #2e3577;
-  --indigo-table: #1c2250;
-  --indigo-line: #353f8c;
+  /* 版面色降低彩度（牌卡本身維持飽和色）：抓鬼特工＝灰藍、畫地取寶＝灰酒紅 */
+  --wine: #6a3d43;
+  --wine-table: #44343a;
+  --wine-line: #5e4950;
+  --indigo: #373d5f;
+  --indigo-table: #353b56;
+  --indigo-line: #4c5375;
   --exp-red: #d6362f;
   --exp-green: #1f8f56;
   --trig: #1b5bb3;
@@ -125,7 +126,7 @@ input:focus { border-color: var(--gold); outline: none; }
   padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line); color: #fff;
 }
 .gbar.s-ghost { background: var(--indigo); border-color: var(--indigo-line); }
-.gbar.s-treasure { background: var(--wine); border-color: #7d1822; }
+.gbar.s-treasure { background: var(--wine); border-color: var(--wine-line); }
 .gtitle { display: flex; flex-direction: column; line-height: 1.15; margin-right: auto; min-width: 0; }
 .gseries { font-size: .72rem; color: rgba(255,255,255,.75); letter-spacing: .14em; }
 .gtitle b { font-family: var(--font-display); font-weight: 400; font-size: 1.35rem; letter-spacing: .05em; }
@@ -765,6 +766,17 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 }
 /* 等候室座位多（例如 6 人）時，「開始」那一排固定在畫面底部，不用捲下去找 */
 .setup-seats .setup-actions { position: sticky; bottom: 0; z-index: 5; background: var(--surface); padding-block: 10px; margin-inline: -4px; padding-inline: 4px; }
+/* 加入頁的名字欄 */
+.hub-join label.grow { flex: 1 1 8em; }
+.hub-join .name-in { width: 100%; letter-spacing: 0; font-family: var(--font-body); text-align: left; }
+.joinpage .hub-join .name-in { font-size: 1.15rem; }
+/* 遊戲中的 QR code */
+.qr-modal { width: min(520px, 100%); }
+.qr-big { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.qr-big .qr { width: min(340px, 78vw); height: auto; aspect-ratio: 1; }
+.qr-big .qr-code { font-family: var(--font-math); font-size: clamp(2.6rem, 9vw, 3.6rem); letter-spacing: .18em; line-height: 1; color: var(--gold-2); }
+.qr-big p { margin: 0; }
+.qr-big code { font-size: .78rem; color: var(--text-3); overflow-wrap: anywhere; }
 
 </style>
 </head>
@@ -3257,6 +3269,7 @@ function topBar(meta, extra = {}) {
   return h('header', { class: `gbar s-${meta.series}` },
     h('button', { class: 'gbtn back', onclick: extra.onBack }, extra.backLabel || '‹ 大廳'),
     h('div', { class: 'gtitle' }, h('span', { class: 'gseries' }, SERIES[meta.series].name), h('b', {}, meta.name)),
+    extra.qr && extra.room ? h('button', { class: 'gbtn qrbtn', type: 'button', onclick: () => showRoomQR(extra.room) }, 'QR code') : null,
     extra.room ? h('span', { class: 'gmeta' },
       h('span', { class: 'gclock', hidden: true, title: '本局剩餘時間' }, h('small', {}, '剩餘'), h('b', {})),
       h('span', { class: 'roomchip', title: '遊戲室房號' }, `房號 ${extra.room}`)) : null,
@@ -3264,6 +3277,16 @@ function topBar(meta, extra = {}) {
       ...(extra.buttons || []),
       extra.noRules ? null : h('button', { class: 'gbtn', onclick: () => showRules(meta) }, '規則'),
       h('button', { class: 'gbtn', onclick: () => showReference(meta.series) }, '對照表')));
+}
+/* 遊戲中打開大的 QR code（投影給大家掃；退出的玩家輸入原本的座號就能回到座位） */
+function showRoomQR(code) {
+  const url = NET.joinURL(code);
+  modal({ title: `遊戲室 ${code}`, cls: 'qr-modal', body: h('div', { class: 'qr-big' },
+    qrSVG(url) || h('p', { class: 'muted' }, 'QR code 載入失敗，請改用房號。'),
+    h('b', { class: 'qr-code' }, code),
+    h('p', {}, '用手機相機掃描，或打開網站選「我是玩家」輸入房號。'),
+    h('p', { class: 'muted' }, '不小心離開的玩家，輸入原本的座號就能回到座位。'),
+    h('code', {}, url)), actions: [{ label: '關閉', primary: true }] });
 }
 function showRules(meta) {
   const present = myRole() === 'teacher';   // 主持人：投影用大字
@@ -3279,7 +3302,8 @@ const SS = {
 };
 const myRole = () => SS.get('role');
 const myNo = () => String((Store.get('me', {}) || {}).no || '');
-const saveNo = no => Store.set('me', { no });
+const myName = () => String((Store.get('me', {}) || {}).name || '');
+const saveNo = (no, name) => Store.set('me', { no, name: name == null ? myName() : name });
 function setRole(role) { SS.set('role', role); route(); }
 /* 回首頁重新選身分（選錯時用） */
 function backHome() { SS.set('role', null); goHub(); }
@@ -3344,9 +3368,11 @@ function showWelcome() {
 
 
 /* 玩家加入：房號＋座號，按一下就連 */
-function joinFields(code, onDone, btnLabel = '加入') {
+/* withName：第一次加入可以填名字；回到遊戲只要房號＋座號（主持人用座號認人） */
+function joinFields(code, onDone, btnLabel = '加入', withName = false) {
   const codeIn = h('input', { class: 'code-in', inputmode: 'numeric', maxlength: '4', placeholder: '房號', value: code || '', 'aria-label': '房號' });
   const noIn = h('input', { class: 'no-in', inputmode: 'numeric', maxlength: '3', placeholder: '座號', value: myNo(), 'aria-label': '座號' });
+  const nameIn = withName ? h('input', { class: 'name-in', maxlength: '12', placeholder: '名字', value: myName(), 'aria-label': '名字' }) : null;
   const status = h('p', { class: 'join-status', role: 'status' });
   const go = h('button', { class: 'btn primary', type: 'submit' }, btnLabel);
   const form = h('form', { class: 'hub-join', onsubmit: async e => {
@@ -3356,11 +3382,13 @@ function joinFields(code, onDone, btnLabel = '加入') {
     if (!no) { status.textContent = '請輸入座號。'; noIn.focus(); return; }
     if (!NET.available()) { status.textContent = '這個頁面目前無法連線：請用網站網址開啟。'; return; }
     if (!myRole()) SS.set('role', 'student');   // 從首頁「回到遊戲」直接輸入時，以玩家身分加入
-    saveNo(no);
+    const name = nameIn ? nameIn.value.trim() : myName();
+    saveNo(no, name);
     go.disabled = true; status.textContent = '連線中…';
-    try { await joinRoom(c, { no }); if (onDone) onDone(); } catch (err) { status.textContent = err.message; go.disabled = false; }
-  } }, h('label', {}, h('span', {}, '房號'), codeIn), h('label', {}, h('span', {}, '座號'), noIn), go);
-  return { form, status, codeIn, noIn };
+    try { await joinRoom(c, { no, name }); if (onDone) onDone(); } catch (err) { status.textContent = err.message; go.disabled = false; }
+  } }, h('label', {}, h('span', {}, '房號'), codeIn), h('label', {}, h('span', {}, '座號'), noIn),
+  nameIn ? h('label', { class: 'grow' }, h('span', {}, '名字（可不填）'), nameIn) : null, go);
+  return { form, status, codeIn, noIn, nameIn };
 }
 
 /* ---------- 大廳（主持人）：玩家選了身分就直接到「加入遊戲」頁，不會看到遊戲列表、不能開房 ---------- */
@@ -3919,7 +3947,7 @@ function hostHandlers() {
       conn.cid = cid;
       let i = S.seats.findIndex(s => s.cid === cid);
       if (i < 0) i = S.seats.findIndex(s => s.kind === 'empty');
-      if (i >= 0) S.seats[i] = { kind: 'human', cid, name, no, cls, online: true };
+      if (i >= 0) S.seats[i] = { kind: 'human', cid, name: name || (dup && dup.name) || '', no, cls, online: true };
       S.room.send(conn, { t: 'welcome', seat: i >= 0 ? i : null, game: S.meta.id, code: S.code });
       renderLobby(); hostBroadcastLobby();
     },
@@ -3967,7 +3995,7 @@ function hostStartGame(cfg, restore = null) {
   for (const c of S.room.conns) { const i = cfg.seats.findIndex(s => s.cid === c.cid); S.room.send(c, { t: 'welcome', seat: i >= 0 ? i : null, game: meta.id, code: S.code }); }
   const hostSeat = cfg.seats.findIndex(s => s.local);
   const main = gameScreen(meta, {
-    room: S.code, backLabel: '‹ 遊戲室',
+    room: S.code, qr: true, backLabel: '‹ 遊戲室',
     onBack: () => confirmBox('回到遊戲室？', '這一局會中止，所有人回到座位畫面。', '回遊戲室', hostBackToLobby),
     buttons: [h('button', { class: 'gbtn', onclick: () => confirmBox('提早結算？', '以目前的狀況結算這一局。', '結算', () => S.game.runner.endNow()) }, '提早結算')],
   });
@@ -4008,14 +4036,14 @@ function showJoin(code, errText, auto = false) {
   clearApp();
   if (!myRole()) SS.set('role', 'student');
   if (!auto) SS.set('inRoom', null);
-  const j = joinFields(code);
+  const j = joinFields(code, null, '加入', true);
   j.status.textContent = NET.available() ? (errText || '') : '這個頁面目前無法連線：請用網站網址開啟（例如掃 QR code）。';
   App.root.append(h('div', { class: 'joinpage' },
     h('header', { class: 'gbar plain' }, h('button', { class: 'gbtn back', onclick: backHome }, '‹ 首頁'), h('div', { class: 'gtitle' }, h('b', {}, '數學桌遊館'))),
     h('div', { class: 'joinwrap' }, ...(auto ? [] : rejoinBanners('player')),
       h('div', { class: 'panel joinform' }, h('h1', {}, '加入遊戲'), j.form, j.status))));
   if (auto) j.form.requestSubmit();
-  else setTimeout(() => (code && !j.noIn.value ? j.noIn : code ? j.form.querySelector('.btn') : j.codeIn).focus(), 30);
+  else setTimeout(() => (code && !j.noIn.value ? j.noIn : code ? j.nameIn : j.codeIn).focus(), 30);
 }
 /* 不小心退出後一鍵回來（座號會自動帶入） */
 function quickJoin(code, no) { if (no) saveNo(no); showJoin(code, '正在連回遊戲室…', true); }
@@ -4046,7 +4074,7 @@ function clientMsg(cl, msg) {
       if (cl.view) cl.view.destroy();
       document.querySelectorAll('.modal-back').forEach(m => m.remove());
       cl.runId = st.runId; cl.meta = meta;
-      const main = gameScreen(meta, { room: cl.code, backLabel: '‹ 離開', onBack: () => confirmBox('離開遊戲室？', '離開後由電腦代打你的座位；之後在首頁按「回到遊戲室」可以接回。', '離開', () => { goHub(); }) });
+      const main = gameScreen(meta, { room: cl.code, qr: true, backLabel: '‹ 離開', onBack: () => confirmBox('離開遊戲室？', '離開後由電腦代打你的座位；之後在首頁按「回到遊戲室」可以接回。', '離開', () => { goHub(); }) });
       cl.view = new GameView(GAMES[meta.id], main, {
         mySeat: cl.seat, localSeats: new Set(cl.seat != null ? [cl.seat] : []),
         send: (seat, a) => { cl.rc.send({ t: 'act', action: a }); return Promise.resolve({ ok: true }); },
