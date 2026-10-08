@@ -681,6 +681,32 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
   .gmain.cardgame > .note { order: -1; }
   .gmain.cardgame > .note:empty { display: none; }
 }
+/* ===== 示範對局：解說欄＋播放控制 ===== */
+.demo-narr { flex: none; width: 100%; max-width: 1280px; margin: 0 auto; padding: 12px 16px 0; display: flex; gap: 14px; align-items: flex-start; }
+.dn-step { flex: none; padding: 4px 12px; border-radius: 999px; background: var(--gold); color: #2b1d00; font-weight: 700; font-size: .9rem; white-space: nowrap; }
+.dn-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.dn-msg { font-size: 1.12rem; font-weight: 700; line-height: 1.5; }
+.dn-teach { font-size: 1.05rem; line-height: 1.6; color: var(--text-2); }
+.dn-teach:empty { display: none; }
+.demo-ctl { flex: none; position: sticky; bottom: 0; z-index: 25; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); }
+.demo-range { flex: 1 1 220px; min-width: 160px; accent-color: var(--gold); height: 28px; }
+.demo .gmain.cardgame .me { position: static; max-height: none; box-shadow: none; }
+.demo .bact { display: none; }
+@media (min-width: 900px) and (min-height: 560px) {
+  .demo-narr { max-height: 24vh; overflow: auto; }
+  .dn-msg { font-size: 1.2rem; }
+  .dn-teach { font-size: 1.12rem; }
+}
+@media (max-width: 720px) {
+  .demo-narr { flex-direction: column; gap: 6px; padding-top: 10px; }
+  .dn-msg { font-size: 1rem; } .dn-teach { font-size: .95rem; }
+  .demo-range { order: -1; flex-basis: 100%; }
+}
+.demo .gmain .msg { display: none; }   /* 示範時訊息已經在上方解說欄 */
+@media (min-width: 900px) and (min-height: 560px) {
+  /* 示範時上方有解說欄、下方有播放列，圖紙高度跟著縮 */
+  .demo .board.king { width: min(calc((100vh - 290px) * .861), 52vw); }
+}
 
 </style>
 </head>
@@ -1076,6 +1102,28 @@ function makeGhostDeck() {
   return deck;
 }
 const GHOST_CARD = { deck: 'ghost', id: 'GHOST', color: 'ghost' };
+/* ---- 示範解說：把「為什麼」用算式講清楚 ---- */
+const QUADRANT = ['一', '二', '三', '四'];
+function trigReason(fn, angle) {
+  const v = trigEx(fn, angle), a = ((angle % 360) + 360) % 360;
+  const T = trigHTML(fn, angle), Vh = exHTML(v);
+  const co = angle !== a ? `${angle < 0 ? '−' + -angle : angle}° 和 ${a}° 同界，` : '';
+  if (a % 90 === 0) return `${co}${a}° 的終邊在 ${['x 軸正向', 'y 軸正向', 'x 軸負向', 'y 軸負向'][a / 90]}，${T} = ${Vh}`;
+  const q = Math.floor(a / 90), ref = [a, 180 - a, a - 180, 360 - a][q];
+  if (q === 0 && !co) return `${T} = ${Vh}（特殊角）`;
+  const pos = fn === 'sin' ? q <= 1 : fn === 'cos' ? (q === 0 || q === 3) : (q === 0 || q === 2);
+  return `${co}${a}° 在第${QUADRANT[q]}象限、參考角 ${ref}°，${fn} 為${pos ? '正' : '負'}，所以 ${T} = ${pos ? '' : '−'}${trigHTML(fn, ref)} = ${Vh}`;
+}
+function ghPow(c) {
+  return `${powHTML(c)} 是 ${c.exp} 個 ${c.base} 相乘` + (c.exp <= 6 ? `：${Array(c.exp).fill(c.base).join(' × ')} = ${c.value}` : `，等於 ${c.value}`);
+}
+const ghCardWhy = c => (c.color === 'green' ? ghPow(c) : c.color === 'red' ? `紅色數字牌 ${c.value}` : '鬼牌');
+function ghExplainPair(a, b) {
+  const [g, r] = a.color === 'green' ? [a, b] : [b, a];
+  return `${ghPow(g)}，和紅色數字牌 ${r.value} 一樣，所以是一對。`;
+}
+const trCardWhy = c => (c.kind === 'trig' ? trigReason(c.fn, c.angle) : c.kind === 'manual' ? '說明卡' : `數值卡 ${exHTML(c.value)}`);
+function trExplainPair(a, b) { return `${[a, b].map(trCardWhy).join('；')}。兩張的值相同，所以是一對。`; }
 const powHTML = c => `${c.base}<sup>${c.exp}</sup>`;
 const ghPair = (a, b) => a.color !== 'ghost' && b.color !== 'ghost' && a.color !== b.color && a.value === b.value;
 function ghWhy(a, b) { const [g, r] = a.color === 'green' ? [a, b] : [b, a]; return `${powHTML(g)} = ${r.value}`; }
@@ -1356,7 +1404,7 @@ class HostRunner {
         if (this.timers.has(w.id)) continue;
         if (w.live && this.isBot(w.seat)) {
           const ms = this.def.thinkMs ? this.def.thinkMs(s, w) : 900;
-          this.timers.set(w.id, WTimer.set(() => this.onLiveBot(w), ms * speedFactor()));
+          this.timers.set(w.id, this.schedule(() => this.onLiveBot(w), ms));
           continue;
         }
         const ms = this.limitMs(w);
@@ -1370,6 +1418,7 @@ class HostRunner {
       return;
     }
   }
+  schedule(fn, ms) { return WTimer.set(fn, ms * speedFactor()); }
   stopTimers() { this.timers.forEach(t => WTimer.clear(t)); this.timers.clear(); }
   onLiveBot(w) {
     const s = this.state;
@@ -1775,7 +1824,7 @@ function cardFrame(v, s, o) {
   v.root.className = 'gmain cardgame';
   v.root.replaceChildren(...parts);
   v.updateTimers();
-  if (s.over) showOver(v, s);
+  if (s.over && !v.o.noOverModal) showOver(v, s);
 }
 /* 一排卡牌（以 id 表示） */
 function cardsEls(ids, o = {}) {
@@ -2013,6 +2062,16 @@ function oldMaidDef(k) {
     },
     step() {},
     finish,
+    /* 示範對局的解說 */
+    teach(s) {
+      if (s.over) return '';
+      const sh = s.show || {}, w = s.wait.find(x => x.kind === 'draw');
+      const next = w ? ` 接下來輪到 ${L(s, w.seat)} 從 ${L(s, w.from)} 手上抽一張。` : '';
+      if (sh.type === 'pair') return `為什麼是一對？${k.explain(C(sh.a), C(sh.b))}${next}`;
+      if (sh.type === 'drew') return `抽到的牌和手上的牌都配不起來，只好收進手牌。${next}`;
+      if (w) return `每個人先把手上能配對的牌打出來（${k.intro}）。接著輪流從下一位手上抽一張牌，抽到能配對的就打出來；${k.loserName}永遠配不起來，最後拿著它的人輸。${next}`;
+      return `開局：每個人先把手上能配對的牌打出來（${k.intro}）。`;
+    },
     render(s, v) {
       const me = v.seat, w = v.myWait(), ui = v.ui;
       ui.sel = ui.sel || [];
@@ -2077,12 +2136,12 @@ function oldMaidDef(k) {
 
 oldMaidDef({
   id: 'ghost', deck: 'ghost', loser: 'GHOST', loserName: '鬼牌', setAside: false, endWhenAnyEmpty: false,
-  deckIds: () => makeGhostDeck().map(c => c.id), canPair: ghPair, pairWhy: ghWhy, notWhy: ghNot,
+  deckIds: () => makeGhostDeck().map(c => c.id), canPair: ghPair, pairWhy: ghWhy, notWhy: ghNot, explain: ghExplainPair,
   loserMsg: '鬼牌沒辦法配對，想辦法讓別人抽走它！', intro: '紅色數字牌配綠色指數牌，數值相同才算成功',
 });
 oldMaidDef({
   id: 'drawpk', deck: 'treasure', loser: 'MANUAL', loserName: '說明卡', setAside: true, endWhenAnyEmpty: true,
-  deckIds: () => makeTreasureDeck().map(c => c.id), canPair: trPair, pairWhy: trWhy, notWhy: trNot,
+  deckIds: () => makeTreasureDeck().map(c => c.id), canPair: trPair, pairWhy: trWhy, notWhy: trNot, explain: trExplainPair,
   loserMsg: '說明卡沒辦法配對，想辦法讓別人抽走它！', intro: '數值相同的兩張牌可以配對（函數卡配函數卡，或函數卡配數值卡）',
 });
 
@@ -2120,6 +2179,7 @@ function fishingDef(k) {
     s.wait = [{ seat: t, kind: 'play' }];
   }
   function capture(s, seat, a, b) {
+    s.ev = { type: 'cap', seat, a, b };
     s.table = s.table.filter(x => x !== b);
     s.caps[seat].push([a, b]);
     s.lastCap = [a, b];
@@ -2153,8 +2213,8 @@ function fishingDef(k) {
         s.wait = [];
         s.lastPlaced = null;
         if (a.match != null) { capture(s, seat, a.card, a.match); sayS(s, `${L(s, seat)} 配對成功：${k.pairWhy(C(a.card), C(a.match))}`, 'ok'); }
-        else if (wrong != null) { s.table.push(a.card); s.lastPlaced = a.card; sayS(s, `✗ ${L(s, seat)} 配對錯誤：${k.notWhy(C(a.card), C(wrong))}這張牌留在${k.tableShort}。`, 'bad'); }
-        else { s.table.push(a.card); s.lastPlaced = a.card; sayS(s, `${meta.timeout ? `⏰ ${L(s, seat)} 超時，隨機` : `${L(s, seat)} `}把 ${cardInline(C(a.card))} ${k.placeLabel}。`, meta.timeout ? 'bad' : ''); }
+        else if (wrong != null) { s.ev = { type: 'wrong' }; s.table.push(a.card); s.lastPlaced = a.card; sayS(s, `✗ ${L(s, seat)} 配對錯誤：${k.notWhy(C(a.card), C(wrong))}這張牌留在${k.tableShort}。`, 'bad'); }
+        else { s.ev = { type: 'place', seat, card: a.card }; s.table.push(a.card); s.lastPlaced = a.card; sayS(s, `${meta.timeout ? `⏰ ${L(s, seat)} 超時，隨機` : `${L(s, seat)} `}把 ${cardInline(C(a.card))} ${k.placeLabel}。`, meta.timeout ? 'bad' : ''); }
         s.turn = seat;
         const flipNow = k.mode === 'pk' || a.match != null;
         if (flipNow && s.deck.length) s.auto = { kind: 'flip', seat, delay: 1000 };
@@ -2164,6 +2224,7 @@ function fishingDef(k) {
       }
       if (w.kind === 'flipmatch') {
         if (a.type === 'skip' || a.type === 'place') {
+          s.ev = { type: 'flipstay', card: s.flip };
           s.table.push(s.flip); s.lastPlaced = s.flip;
           sayS(s, a.type === 'skip' ? `⏰ ${L(s, seat)} 超時，翻出的牌留在${k.tableShort}。` : `${L(s, seat)} 把翻出的 ${cardInline(C(s.flip))} 留在${k.tableShort}。`, a.type === 'skip' ? 'bad' : '');
           s.wait = []; s.hold = 900; nextTurn(s);
@@ -2171,12 +2232,13 @@ function fishingDef(k) {
         }
         if (a.type !== 'match' || !s.table.includes(a.target)) return { err: `請點選${k.tableShort}上的一張牌。` };
         if (!pairOK(s.flip, a.target)) {
+          s.ev = { type: 'wrong' };
           sayS(s, `✗ ${L(s, seat)} 配對錯誤：${k.notWhy(C(s.flip), C(a.target))}翻出的牌留在${k.tableShort}。`, 'bad');
           s.table.push(s.flip); s.lastPlaced = s.flip;
           s.wait = []; s.hold = 1600; nextTurn(s);
           return;
         }
-        capture(s, seat, s.flip, a.target);
+        capture(s, seat, s.flip, a.target); s.ev.flip = true;
         sayS(s, `${L(s, seat)} 又配對成功：${k.pairWhy(C(s.flip), C(a.target))}`, 'ok');
         s.wait = []; s.hold = 1100; nextTurn(s);
         return;
@@ -2186,6 +2248,7 @@ function fishingDef(k) {
     step(s, a) {
       if (a.kind === 'flip') {
         s.flip = s.deck.pop();
+        s.ev = { type: 'flip', card: s.flip };
         sayS(s, `${L(s, a.seat)} 翻開牌堆：${cardInline(C(s.flip))}`);
         s.auto = { kind: 'flipres', seat: a.seat, delay: 900 };
         return;
@@ -2199,13 +2262,14 @@ function fishingDef(k) {
           return;
         }
         if (!ms.length) {
+          s.ev = { type: 'flipstay', card: s.flip };
           s.table.push(s.flip); s.lastPlaced = s.flip;
           sayS(s, `翻出的 ${cardInline(C(s.flip))} 沒有可配對的牌，留在${k.tableShort}。`);
           s.hold = 1000; nextTurn(s);
           return;
         }
         const m = best(ms);
-        capture(s, a.seat, s.flip, m);
+        capture(s, a.seat, s.flip, m); s.ev.flip = true;
         sayS(s, `${L(s, a.seat)} 又配對成功：${k.pairWhy(C(s.flip), C(m))}`, 'ok');
         s.hold = 1100; nextTurn(s);
         return;
@@ -2214,6 +2278,7 @@ function fishingDef(k) {
         const c = s.deck.pop();
         s.hands[a.seat].push(c);
         s.drawnNew = { seat: a.seat, card: c };
+        s.ev = { type: 'draw', seat: a.seat };
         sayS(s, `${L(s, a.seat)} 從牌堆摸了一張牌。`);
         s.hold = 700; nextTurn(s);
       }
@@ -2234,6 +2299,23 @@ function fishingDef(k) {
     /* 超時：出牌是一定要做的動作 → 隨機丟一張到桌面；翻牌配對 → 翻出的牌留在桌面 */
     timeout: (s, seat, w) => (w.kind === 'play' ? { type: 'play', card: pick(s.hands[seat]), match: null } : { type: 'skip' }),
     finish,
+    /* 示範對局的解說 */
+    teach(s) {
+      if (s.over) return '';
+      const e = s.ev || {}, T = k.tableShort;
+      if (e.type === 'cap') {
+        let t = `為什麼能配對？${k.explain(C(e.a), C(e.b))}`;
+        const g = k.mode === 'green' && [e.a, e.b].map(C).find(c => c.color === 'green');
+        if (g) t += `收回的綠色指數牌 ${powHTML(g)} 底數是 ${g.base}，可以得 ${Math.min(g.base, 10)} 分。`;
+        return t + (!e.flip && s.deck.length ? '配對成功後，翻開牌堆一張。' : '');
+      }
+      if (e.type === 'place') return `${L(s, e.seat)} 手上沒有和${T}數值相同的牌，只好丟一張到${T}${k.mode === 'green' ? '，再從牌堆摸一張' : '，接著翻開牌堆一張'}。`;
+      if (e.type === 'flip') return `翻出 ${cardInline(C(e.card))}：${k.cardWhy(C(e.card))}。看看${T}有沒有數值相同的牌。`;
+      if (e.type === 'flipstay') return `${k.cardWhy(C(e.card))}。${T}上沒有數值相同的牌，所以只好留在${T}。`;
+      if (e.type === 'draw') return '這一手沒有配對成功，所以從牌堆摸一張牌進手牌。';
+      if (e.type === 'wrong') return `配對點錯了，那張牌直接留在${T}。`;
+      return `每人先拿手牌，${T}翻開 4 張。輪到你時，找一張和${T}數值相同的手牌配對收回；沒有就丟一張到${T}。`;
+    },
     render(s, v) {
       const me = v.seat, w = v.myWait(), ui = v.ui;
       const playing = w && w.kind === 'play', matching = w && w.kind === 'flipmatch';
@@ -2274,11 +2356,11 @@ function fishingDef(k) {
 
 fishingDef({
   id: 'pairpk', mode: 'pk', deck: 'treasure', deckIds: () => makeTreasureDeck().map(c => c.id),
-  canPair: trPair, pairWhy: trWhy, notWhy: trNot, tableName: '桌面上的牌', tableShort: '桌面', placeLabel: '放到桌面',
+  canPair: trPair, pairWhy: trWhy, notWhy: trNot, explain: trExplainPair, cardWhy: trCardWhy, tableName: '桌面上的牌', tableShort: '桌面', placeLabel: '放到桌面',
 });
 fishingDef({
   id: 'green', mode: 'green', deck: 'ghost', deckIds: () => makeGhostDeck().map(c => c.id).filter(id => !GREEN_REMOVED.includes(id)),
-  canPair: ghPair, pairWhy: ghWhy, notWhy: ghNot, tableName: '海底牌', tableShort: '海底', placeLabel: '放到海底',
+  canPair: ghPair, pairWhy: ghWhy, notWhy: ghNot, explain: ghExplainPair, cardWhy: ghCardWhy, tableName: '海底牌', tableShort: '海底', placeLabel: '放到海底',
 });
 
 'use strict';
@@ -2391,6 +2473,17 @@ defineGame({
   timeout(s, seat, w) {
     if (w.kind === 'pick') return { type: 'pick', index: rand(s.hands[w.from].length) };
     return { type: 'skip' };
+  },
+  /* 示範對局的解說 */
+  teach(s) {
+    if (s.over) return '';
+    const L = i => seatLabel(s.seats[i]);
+    if (s.phase === 'pick' || !s.card) return `${L(s.turn)} 從 ${L(s.q)} 手上抽一張牌，${L(s.q)} 要在限時內作答。答對：這張牌給抽牌的人（自己少一張）；答錯：牌收回自己手上。手牌先出完的人贏。`;
+    const c = C(s.card);
+    if (s.phase === 'answer') return c.kind === 'trig' ? `題目：${trigHTML(c.fn, c.angle)} 的值是多少？想一想它在第幾象限、參考角是幾度。` : `題目：哪一個三角函數等於 ${exHTML(c.value)}？`;
+    const eq = TRIG_POOL.filter(t => t.key === c.key);
+    const why = c.kind === 'trig' ? trigReason(c.fn, c.angle) : `${exHTML(c.value)} = ${eq.slice(0, 4).map(t => trigHTML(t.fn, t.angle)).join(' = ')}；例如 ${trigReason(eq[eq.length - 1].fn, eq[eq.length - 1].angle)}`;
+    return `解答：${why}。${s.answer && s.answer.ok ? '答對了，這張牌給抽牌的人。' : '答錯了，這張牌收回自己手上。'}`;
   },
   render(s, v) {
     const me = v.seat, w = v.myWait(), ui = v.ui;
@@ -2664,6 +2757,19 @@ defineGame({
     for (const c of s.move.cands) { const g = this.newIn(s, seat, mapPoly(s.map, mapCycle(s.map, seat, s.move.start, c, s.move.qi))); if (g > bg) { bg = g; R = c; } }
     return { type: 'close', R };
   },
+  /* 示範對局的解說 */
+  teach(s) {
+    if (s.over) return '';
+    const T = this.team(s, s.turn);
+    if (s.move && s.move.card) {
+      const c = C(s.move.card);
+      const base = c.kind === 'trig' ? trigReason(c.fn, c.angle) : `數值卡 ${exHTML(c.value)} 代表斜率 ${exHTML(c.value)}`;
+      if (s.phase === 'roll') return `${T}出了 ${cardInline(c)}：${base}。擲骰子決定要走幾單位（n）。`;
+      const ex = s.move.explain && s.move.explain.replace(/<small>(.*?)。?<\/small>/, '（$1）');
+      if (ex) return `${base}。擲出 ${s.move.n}：${ex}${s.phase === 'close' ? '。新的點可以和自己的舊點連成封閉區域，圈住寶物就得分。' : ''}`;
+    }
+    return `${T}選一張牌、擲骰子得到 n。sin θ 卡上下移動 n × sin θ；cos θ 卡左右移動 n × cos θ；tan θ 和數值卡沿那個斜率的直線走 n 單位。新的點要和前一點連線，線段不能交叉。`;
+  },
   /* 超時：出牌、選方向是一定要做的 → 隨機代為出手；要不要加連線段可做可不做 → 不連 */
   timeout(s, seat, w) {
     if (w.kind === 'close') return { type: 'close', R: null };
@@ -2758,7 +2864,7 @@ defineGame({
     v.root.className = 'gmain boardgame';
     v.root.replaceChildren(h('div', { class: 'board-wrap' }, svgEl), panel);
     v.updateTimers();
-    if (s.over) showOver(v, s);
+    if (s.over && !v.o.noOverModal) showOver(v, s);
   },
 });
 
@@ -2887,6 +2993,16 @@ defineGame({
     if (w.kind === 'slap') return { type: 'pass' };
     return this.ai(s, seat, w);
   },
+  /* 示範對局的解說 */
+  teach(s) {
+    if (s.over) return '';
+    const L = i => seatLabel(s.seats[i]);
+    if (s.phase === 'call' || !s.call) return `輪到 ${L(s.turn)}：翻開自己最上面的牌，同時喊一個數字（不能和上一位喊的一樣）。喊的數字等於翻開的三角函數值，大家就要搶著拍，最慢的人收回中央所有的牌。`;
+    const top = s.round ? s.round.card : s.pile[s.pile.length - 1];
+    if (!top) return '';
+    const c = C(top);
+    return `${trigReason(c.fn, c.angle)}；喊的是 ${speedCallHTML(s.call.v)}，${s.match ? '兩個相等，要搶著拍！最慢拍的人收回中央的牌。' : '兩個不相等，不能拍，拍了算拍錯。'}`;
+  },
   render(s, v) {
     const me = v.seat, w = v.myWait(), ui = v.ui;
     const L = i => seatLabel(s.seats[i]);
@@ -2939,7 +3055,7 @@ defineGame({
 });
 
 'use strict';
-/* 各遊戲規則：只放線上版怎麼玩，短到學生願意看完 */
+/* 各遊戲規則：只放線上版怎麼玩，短到玩家願意看完 */
 const RULES = {
   ghost: {
     goal: '熟悉指數，能快速算出指數式的值。',
@@ -3092,34 +3208,34 @@ function topBar(meta, extra = {}) {
       h('button', { class: 'gbtn', onclick: () => showReference(meta.series) }, '對照表')));
 }
 function showRules(meta) {
-  const present = Store.get('role') === 'teacher';   // 老師端：投影用大字
+  const present = Store.get('role') === 'teacher';   // 主持人：投影用大字
   modal({ title: `${meta.name} · 遊戲規則`, wide: true, cls: present ? 'present' : '', body: h('div', { class: 'rules', html: rulesHTML(meta.id) }), actions: [{ label: '知道了', primary: true }] });
 }
 
 /* ---------- 身分與個人資料 ---------- */
 const myRole = () => Store.get('role', null);
 const myProfile = () => ({ cls: '', no: '', name: '', ...Store.get('me', {}) });
-const profileOK = p => !!(p.cls && p.no && p.name);
-const profileText = p => `${p.cls}班 ${p.no}號 ${p.name}`;
+const profileOK = p => !!(p.no && p.name);   // 班級選填：不是學生也能玩
+const profileText = p => `${p.cls ? p.cls + ' ' : ''}${p.no}號 ${p.name}`;
 function profileFields(p) {
   const f = (id, label, val, o) => h('label', { class: 'field' + (o.grow ? ' grow' : '') }, h('span', {}, label),
     h('input', { id, value: val || '', placeholder: label, maxlength: o.max, inputmode: o.num ? 'numeric' : null, class: o.cls, 'aria-label': label }));
   return h('div', { class: 'field-row' },
-    f('pf-cls', '班級', p.cls, { max: '6', cls: 'cls-in' }),
-    f('pf-no', '座號', p.no, { max: '3', num: true, cls: 'no-in' }),
-    f('pf-name', '姓名', p.name, { max: '12', grow: true, cls: 'name-in' }));
+    f('pf-cls', '班級（選填）', p.cls, { max: '6', cls: 'cls-in' }),
+    f('pf-no', '座號／編號', p.no, { max: '3', num: true, cls: 'no-in' }),
+    f('pf-name', '姓名／暱稱', p.name, { max: '12', grow: true, cls: 'name-in' }));
 }
 function readProfile(root) {
   const v = id => (root.querySelector('#' + id).value || '').trim();
   return { cls: v('pf-cls'), no: v('pf-no'), name: v('pf-name') };
 }
-/* 學生填一次就好，之後加入房間不用再填 */
+/* 玩家填一次就好，之後加入房間不用再填 */
 function editProfile(onDone) {
   const err = h('p', { class: 'join-status' });
-  const body = h('div', { class: 'profile-form' }, h('p', { class: 'muted' }, '填一次就好，之後輸入房號就能直接加入。同一間遊戲室的班級座號不能重複。'), profileFields(myProfile()), err);
+  const body = h('div', { class: 'profile-form' }, h('p', { class: 'muted' }, '填一次就好，之後輸入房號就能直接加入。同一間遊戲室的座號／編號不能重複；班級可以不填。'), profileFields(myProfile()), err);
   modal({ title: '我的資料', body, actions: [{ label: '儲存', primary: true, keepOpen: true, onClick: () => {
     const p = readProfile(body);
-    if (!profileOK(p)) { err.textContent = '班級、座號、姓名都要填。'; return; }
+    if (!profileOK(p)) { err.textContent = '座號／編號和姓名都要填（班級選填）。'; return; }
     Store.set('me', p);
     document.querySelectorAll('.modal-back').forEach(m => m.remove());
     if (onDone) onDone(p);
@@ -3139,8 +3255,8 @@ function showWelcome() {
     h('div', { class: 'hub-title' }, h('h1', {}, '數學桌遊館')),
     h('p', { class: 'welcome-q' }, '你是？'),
     h('div', { class: 'roles' },
-      card('teacher', '我是老師', ['投影遊戲規則給全班看', '播放電腦示範對局', '開設遊戲室，學生輸入房號或掃 QR code 加入']),
-      card('student', '我是學生', ['填一次班級、座號、姓名', '輸入房號就能加入遊戲室', '先看規則，也可以自己開房間']))));
+      card('teacher', '我是主持人', ['投影遊戲規則給大家看', '播放電腦示範對局', '開設遊戲室，玩家輸入房號或掃 QR code 加入']),
+      card('student', '我是玩家', ['填一次座號／編號和姓名（班級選填）', '輸入房號就能加入遊戲室', '先看規則，也可以自己開房間']))));
 }
 
 /* ---------- 大廳 ---------- */
@@ -3165,7 +3281,7 @@ function showHub() {
       h('div', {}, h('h2', {}, SERIES[key].name), h('p', { class: 'series-desc' }, `單元：${SERIES[key].unit}。${SERIES[key].desc}`)),
       h('button', { class: 'btn ghost small', onclick: () => showReference(key) }, '卡牌對照表')),
     h('div', { class: 'tiles' }, META.filter(m => m.series === key).map(tile)));
-  const roleSeg = seg('身分', [['teacher', '老師端'], ['student', '學生端']], role, v => setRole(v), 'role');
+  const roleSeg = seg('身分', [['teacher', '主持人'], ['student', '玩家']], role, v => setRole(v), 'role');
   let side;
   if (teacher) side = h('div', { class: 'hub-side' }, roleSeg);
   else {
@@ -3193,29 +3309,105 @@ function showHub() {
     group('ghost'), group('treasure')));
 }
 
-/* ---------- 示範對局：全部由電腦玩一局，投影給全班看遊戲怎麼進行 ---------- */
-const DEMO_SPEEDS = [['2.4', '慢'], ['1.6', '中'], ['0.9', '快']];
-function showDemo(meta) {
-  clearApp();
+/* ---------- 示範對局：先在背景讓電腦玩完一整局並錄下每一步，再像影片一樣播放 ----------
+   可以暫停、上一步／下一步、拖進度條；每一步都有「發生什麼＋為什麼」的解說 */
+const DEMO_CAP = 4 * 60 * 1000;          // 一局示範最長 4 分鐘（遊戲內時間）
+class DemoRecorder extends HostRunner {
+  constructor(def, cfg, onPublish) { super(def, cfg, onPublish); this.vt = 0; this.capped = false; }
+  /* 不真的等待：只累計遊戲內時間，播放時再照這個節奏 */
+  sleep(ms) {
+    if (this.state.over) return new Promise(() => {});
+    this.vt += ms;
+    if (this.vt > DEMO_CAP) this.capped = true;
+    return new Promise(r => setTimeout(r, 0));
+  }
+  schedule(fn, ms) { const at = this.vt + ms; return setTimeout(() => { this.vt = Math.max(this.vt, at); fn(); }, Math.max(1, Math.round(ms / 100))); }
+  publish() {
+    if (this.capped && !this.state.over) this.def.finish(this.state, '示範到此結束。');
+    super.publish();
+  }
+}
+function recordDemo(meta) {
   const def = GAMES[meta.id];
   const opts = {}; meta.opts.forEach(o => { opts[o.key] = o.def; }); opts.time = '0';
   const n = meta.seats[0] === meta.seats[1] ? 2 : Math.min(4, meta.seats[1]);
   const cfg = { seats: range(0, n - 1).map(() => ({ ai: true, level: 'normal' })), opts, limit: meta.limit };
-  const saved = Store.get('demoSpeed', '1.6');
-  SPEED_BOOST = DEMO_SPEEDS.some(x => x[0] === saved) ? +saved : 1.6;
-  const speedSeg = () => seg('示範速度', DEMO_SPEEDS, String(SPEED_BOOST), v => {
-    SPEED_BOOST = +v; Store.set('demoSpeed', v);
-    document.querySelector('.gbar .seg').replaceWith(speedSeg());
-  }, 'demo-speed');
-  const main = gameScreen(meta, { onBack: () => { location.hash = ''; }, backLabel: '‹ 大廳', buttons: [h('span', { class: 'demo-tag' }, '示範對局'), speedSeg()] });
-  const view = new GameView(def, main, {
-    mySeat: null, localSeats: new Set(), spectate: true, specTag: '示範對局',
-    send: () => Promise.resolve({ ok: true }),
-    overActions: () => [{ label: '回大廳', ghost: true, onClick: () => { location.hash = ''; } }, { label: '再看一次', primary: true, onClick: () => showDemo(meta) }],
+  return new Promise(res => {
+    const frames = [];
+    let rec = null, last = '';
+    rec = new DemoRecorder(def, cfg, st => {
+      const key = JSON.stringify({ ...st, seq: 0, wait: st.wait.map(w => ({ ...w, id: 0, remain: 0, deadline: 0 })) });
+      if (key !== last) { last = key; frames.push({ t: rec ? rec.vt : 0, st }); }
+      if (st.over) { rec.stop(); res(frames); }
+    });
+    rec.start();
   });
-  const runner = new HostRunner(def, cfg, st => view.update(st));
-  App.session = { kill: () => { runner.stop(); view.destroy(); SPEED_BOOST = 1; } };
-  runner.start();
+}
+const DEMO_SPEEDS = [['0.35', '慢'], ['0.6', '中'], ['1.1', '快']];
+async function showDemo(meta) {
+  clearApp();
+  const def = GAMES[meta.id];
+  const main = gameScreen(meta, { onBack: () => { location.hash = ''; }, backLabel: '‹ 大廳', buttons: [h('span', { class: 'demo-tag' }, '示範對局')] });
+  const game = main.parentNode; game.classList.add('demo');
+  const narr = h('section', { class: 'demo-narr', 'aria-live': 'polite' }, h('p', { class: 'muted' }, '電腦正在準備一局示範…'));
+  main.before(narr);
+  let alive = true, timer = null;
+  App.session = { kill: () => { alive = false; clearInterval(timer); if (view) view.destroy(); } };
+  let view = null;
+  const frames = await recordDemo(meta);
+  if (!alive) return;
+  /* 「一步」＝訊息換了一次；進度條、上一步／下一步都以步為單位 */
+  const steps = [];
+  frames.forEach((f, i) => { const n = f.st.msg ? f.st.msg.n : 0; if (!steps.length || steps[steps.length - 1].n !== n) steps.push({ n, i }); });
+  const stepOf = i => { let k = 0; while (k + 1 < steps.length && steps[k + 1].i <= i) k++; return k; };
+  view = new GameView(def, main, { mySeat: null, localSeats: new Set(), spectate: true, specTag: '示範對局', noOverModal: true, send: () => Promise.resolve({ ok: true }) });
+  let cur = -1, t = 0, playing = true;
+  const saved = Store.get('demoRate', '0.6');
+  let rate = DEMO_SPEEDS.some(x => x[0] === saved) ? +saved : 0.6;
+  const narrStep = h('span', { class: 'dn-step' }), narrMsg = h('div', { class: 'dn-msg' }), narrTeach = h('div', { class: 'dn-teach' });
+  narr.replaceChildren(narrStep, h('div', { class: 'dn-body' }, narrMsg, narrTeach));
+  const show = i => {
+    i = clamp(i, 0, frames.length - 1);
+    if (i === cur) return;
+    cur = i;
+    const st = frames[i].st, k = stepOf(i);
+    view.update(st);
+    narrStep.textContent = `第 ${k + 1} / ${steps.length} 步`;
+    if (st.over) {
+      narrMsg.innerHTML = `<b>${st.result.title}</b>`;
+      narrTeach.innerHTML = st.result.note || '';
+    } else {
+      narrMsg.innerHTML = st.msg ? st.msg.html : '';
+      narrTeach.innerHTML = def.teach ? def.teach(st) : '';
+    }
+    slider.value = String(k);
+    playBtn.textContent = playing && i < frames.length - 1 ? '❚❚ 暫停' : '▶ 播放';
+  };
+  const go = k => { k = clamp(k, 0, steps.length - 1); playing = false; t = frames[steps[k].i].t; cur = -1; show(steps[k].i); };
+  const playBtn = h('button', { type: 'button', class: 'btn primary small', onclick: () => {
+    if (cur >= frames.length - 1) { t = 0; cur = -1; }
+    playing = !playing; const i = cur; cur = -1; show(Math.max(0, i));
+  } }, '❚❚ 暫停');
+  const slider = h('input', { type: 'range', class: 'demo-range', min: '0', max: String(steps.length - 1), value: '0', step: '1', 'aria-label': '示範進度',
+    oninput: e => go(+e.target.value) });
+  const rateSeg = () => seg('播放速度', DEMO_SPEEDS, String(rate), v => { rate = +v; Store.set('demoRate', v); ctl.querySelector('.seg').replaceWith(rateSeg()); }, 'demo-rate');
+  const ctl = h('div', { class: 'demo-ctl' },
+    h('button', { type: 'button', class: 'btn small', title: '上一步', onclick: () => go(stepOf(cur) - 1) }, '‹ 上一步'),
+    playBtn,
+    h('button', { type: 'button', class: 'btn small', title: '下一步', onclick: () => go(stepOf(cur) + 1) }, '下一步 ›'),
+    slider, rateSeg(),
+    h('button', { type: 'button', class: 'btn ghost small', onclick: () => showDemo(meta) }, '換一局'));
+  game.append(ctl);
+  show(0);
+  /* 照錄製時的遊戲節奏播放；rate 越小越慢 */
+  timer = setInterval(() => {
+    if (!alive || !playing) return;
+    t += 100 * rate;
+    let i = cur;
+    while (i + 1 < frames.length && frames[i + 1].t <= t) i++;
+    if (i !== cur) show(i);
+    if (cur >= frames.length - 1) { playing = false; const j = cur; cur = -1; show(j); }
+  }, 100);
 }
 
 /* ---------- 第一步：遊戲介紹（規則、人數、每手限時） ---------- */
@@ -3229,7 +3421,7 @@ function seg(label, choices, cur, onPick, idp) {
   return box;
 }
 function hostSeat() {
-  if (myRole() === 'teacher') return { kind: 'human', local: true, name: Store.get('teacherName', '老師'), no: '', cls: '' };
+  if (myRole() === 'teacher') return { kind: 'human', local: true, name: Store.get('teacherName', '主持人'), no: '', cls: '' };
   const me = myProfile(); return { kind: 'human', local: true, name: me.name, no: me.no, cls: me.cls };
 }
 function showSetup(meta) {
@@ -3262,10 +3454,10 @@ function limitRowEl(S) {
 function renderIntro() {
   const S = SET, meta = S.meta;
   const totalRow = meta.seats[0] === meta.seats[1]
-    ? h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, '玩家'), h('p', { class: 'opt-fixed' }, '兩隊對戰：每隊一個座位，由同學或電腦擔任。'))
+    ? h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, '玩家'), h('p', { class: 'opt-fixed' }, '兩隊對戰：每隊一個座位，由玩家或電腦擔任。'))
     : h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, '玩家人數'),
       seg('玩家人數', range(meta.seats[0], meta.seats[1]).map(n => [String(n), `${n} 人`]), S.total, v => { S.total = +v; renderIntro(); }, 'total'),
-      h('small', { class: 'opt-note' }, `按「${myRole() === 'teacher' ? '開設遊戲室' : '開房間'}」後會出現房號與座位，同學加入；人不夠的座位按「＋電腦」補上。`));
+      h('small', { class: 'opt-note' }, `按「${myRole() === 'teacher' ? '開設遊戲室' : '開房間'}」後會出現房號與座位，玩家加入；人不夠的座位按「＋電腦」補上。`));
   const optRows = meta.opts.map(o => h('div', { class: 'opt-row' }, h('span', { class: 'opt-label' }, o.label),
     seg(o.label, o.choices, S.opts[o.key], v => { S.opts[o.key] = v; renderIntro(); }, 'opt-' + o.key)));
   App.root.replaceChildren(h('div', { class: `setup s-${meta.series}` },
@@ -3279,7 +3471,7 @@ function renderIntro() {
       h('section', { class: 'panel setup-rules rules', 'aria-label': '遊戲規則' }, h('h2', {}, '遊戲規則'), h('div', { html: rulesHTML(meta.id) })))));
 }
 
-/* ---------- 第二步：座位（等同學加入、＋電腦）與房號 ---------- */
+/* ---------- 第二步：座位（等玩家加入、＋電腦）與房號 ---------- */
 async function enterLobby() {
   const S = SET;
   Store.set('set.' + S.meta.id, { total: S.total, limit: S.limit, opts: S.opts, hostPlays: S.hostPlays });
@@ -3319,12 +3511,12 @@ function renderLobby() {
         h('em', { class: 'kind human' }, '主持人（你）'),
       ];
     } else if (st.kind === 'human') {
-      body = [h('b', { class: 'seat-name' }, `${st.cls ? st.cls + '班 ' : ''}${st.no ? st.no + '號 ' : ''}${st.name || '同學'}`), h('em', { class: 'kind ' + (st.online ? 'online' : 'offline') }, st.online ? '已連線' : '離線')];
+      body = [h('b', { class: 'seat-name' }, `${st.cls ? st.cls + ' ' : ''}${st.no ? st.no + '號 ' : ''}${st.name || '玩家'}`), h('em', { class: 'kind ' + (st.online ? 'online' : 'offline') }, st.online ? '已連線' : '離線')];
     } else if (st.kind === 'ai') {
       body = [h('b', { class: 'seat-name' }, names[i]), h('em', { class: 'kind ai' }, '電腦'),
         h('span', { class: 'lv-label' }, '強度'), seg('電腦強度', Object.entries(LEVELS), st.level, v => { st.level = v; changed(); }, `lv-${i}`)];
     } else {
-      body = [h('span', { class: 'seat-empty' }, '等待同學加入…'),
+      body = [h('span', { class: 'seat-empty' }, '等待玩家加入…'),
         h('button', { type: 'button', class: 'btn small add', onclick: () => { S.seats[i] = { kind: 'ai', level: 'normal' }; changed(); } }, '＋ 電腦')];
     }
     return h('div', { class: `seatrow kind-${st.kind}`, style: `--pc:${PLAYER_COLORS[i]}` },
@@ -3351,7 +3543,7 @@ function renderLobby() {
         h('div', { class: 'setup-actions' },
           empties ? h('button', { type: 'button', class: 'btn', onclick: () => { S.seats.forEach((s, i) => { if (s.kind === 'empty') S.seats[i] = { kind: 'ai', level: 'normal' }; }); changed(); } }, '空位全部補電腦') : null,
           h('button', { type: 'button', class: 'btn primary cta', disabled: !canStart, onclick: startFromLobby }, empties ? `還差 ${empties} 人` : '全員就位，開始！')),
-        h('p', { class: 'setup-tip', id: 'setup-tip' }, empties ? '等同學加入，或按「＋電腦」補位。' : '')))));
+        h('p', { class: 'setup-tip', id: 'setup-tip' }, empties ? '等玩家加入，或按「＋電腦」補位。' : '')))));
 }
 function setHostPlays(play) {
   const S = SET;
@@ -3378,7 +3570,7 @@ function leaveLobby() {
     S.code = null; S.phase = 'intro'; S.seats = [];
     renderIntro();
   };
-  if (S.seats.some(s => s.kind === 'human' && s.cid)) confirmBox('回到上一步？', '目前的遊戲室會關閉，已加入的同學會被請出。', '關閉並返回', go);
+  if (S.seats.some(s => s.kind === 'human' && s.cid)) confirmBox('回到上一步？', '目前的遊戲室會關閉，已加入的玩家會被請出。', '關閉並返回', go);
   else go();
 }
 function roomPanelEl() {
@@ -3395,7 +3587,7 @@ function roomPanelEl() {
     h('div', { class: 'roomleft' },
       h('div', { class: 'roomcode' }, h('span', {}, '遊戲室房號'), h('b', {}, S.code)),
       h('div', { class: 'roomurl' }, h('code', {}, url), copy),
-      h('small', {}, '同學在大廳輸入房號，或用手機相機掃 QR code 加入。這個畫面要保持開著，遊戲室才會存在。')),
+      h('small', {}, '玩家在大廳輸入房號，或用手機相機掃 QR code 加入。這個畫面要保持開著，遊戲室才會存在。')),
     qrSVG(url) || h('p', { class: 'muted' }, 'QR code 載入失敗，請改用房號。'));
 }
 function setupToCfg() {
@@ -3410,12 +3602,12 @@ function startFromLobby() {
   const tip = document.getElementById('setup-tip');
   const bad = t => { tip.textContent = t; tip.className = 'setup-tip bad'; };
   if (!S.room) { bad('遊戲室還沒建立好。'); return; }
-  if (S.seats.some(s => s.kind === 'empty')) { bad('還有空位：按「＋電腦」補上，或等同學加入。'); return; }
-  if (S.seats.some(s => s.kind === 'human' && !s.local && !s.online)) { bad('有同學目前離線，請等他重新連上，或清空座位改由電腦補上。'); return; }
+  if (S.seats.some(s => s.kind === 'empty')) { bad('還有空位：按「＋電腦」補上，或等玩家加入。'); return; }
+  if (S.seats.some(s => s.kind === 'human' && !s.local && !s.online)) { bad('有玩家目前離線，請等他重新連上，或清空座位改由電腦補上。'); return; }
   const nos = S.seats.filter(s => s.kind === 'human' && s.no).map(s => `${s.cls || ''}|${s.no}`);
-  if (new Set(nos).size !== nos.length) { bad('有班級座號重複，請確認每個人的座號。'); return; }
+  if (new Set(nos).size !== nos.length) { bad('有座號／編號重複，請確認每個人的資料。'); return; }
   const me = S.seats.find(s => s.kind === 'human' && s.local);
-  if (me && myRole() === 'teacher') Store.set('teacherName', me.name || '老師');
+  if (me && myRole() === 'teacher') Store.set('teacherName', me.name || '主持人');
   else if (me) Store.set('me', { ...myProfile(), name: me.name || '', no: me.no || '' });
   hostStartGame(setupToCfg());
 }
@@ -3434,17 +3626,17 @@ function hostHandlers() {
       const cid = String(msg.cid || '').slice(0, 40);
       const name = String(msg.name || '').slice(0, 12), no = String(msg.no || '').trim().slice(0, 3), cls = String(msg.cls || '').trim().slice(0, 6);
       const same = s => (s.cls || '') === cls && s.no === no;
-      const who = `${cls ? cls + '班 ' : ''}${no} 號`;
+      const who = `${cls ? cls + ' ' : ''}${no} 號`;
       const online = c => !!c && [...S.room.conns].some(x => x !== conn && x.cid === c);
       const deny = text => { S.room.send(conn, { t: 'deny', msg: text }); setTimeout(() => S.room.drop(conn), 600); };
       if (S.phase === 'game' && S.game) {
         const cfgSeats = S.game.cfg.seats;
         let seat = cfgSeats.findIndex(s => s.cid === cid);
-        /* 不小心關掉頁面的同學：用同一個座號回到原本的座位 */
+        /* 不小心關掉頁面的玩家：用同一個座號回到原本的座位 */
         if (seat < 0 && no) {
           const j = cfgSeats.findIndex(s => !s.ai && !s.local && same(s));
           if (j >= 0) {
-            if (online(cfgSeats[j].cid)) { deny(`${who}已經有人在遊戲中，請確認班級與座號。`); return; }
+            if (online(cfgSeats[j].cid)) { deny(`${who}已經有人在遊戲中，請確認座號／編號。`); return; }
             cfgSeats[j].cid = cid; S.game.runner.state.seats[j].cid = cid;
             const ls = S.seats.find(s => s.kind === 'human' && !s.local && same(s));
             if (ls) ls.cid = cid;
@@ -3458,11 +3650,11 @@ function hostHandlers() {
         return;
       }
       if (S.phase !== 'lobby') { conn.cid = cid; S.room.send(conn, { t: 'welcome', seat: null, game: S.meta.id, code: S.code }); return; }
-      if (!no) { deny('請輸入座號。'); return; }
+      if (!no) { deny('請輸入座號／編號。'); return; }
       const dup = S.seats.find(s => s.kind === 'human' && same(s) && s.cid !== cid);
       if (dup) {
         /* 同班同座號的人已離線（例如關掉頁面）就讓他接回；還在線上就不能重複 */
-        if (dup.local || online(dup.cid)) { deny(`${who}已經有人使用，請確認班級與座號。`); return; }
+        if (dup.local || online(dup.cid)) { deny(`${who}已經有人使用，請確認座號／編號。`); return; }
         dup.cid = cid;
       }
       conn.cid = cid;
@@ -3569,7 +3761,7 @@ function showJoin(code, errText) {
     e.preventDefault();
     const c = codeIn.value.trim(), p = readProfile(form);
     if (!/^\d{4}$/.test(c)) { status.textContent = '房號是 4 位數字。'; return; }
-    if (!profileOK(p)) { fields.hidden = false; if (summary) summary.remove(); status.textContent = '班級、座號、姓名都要填。'; return; }
+    if (!profileOK(p)) { fields.hidden = false; if (summary) summary.remove(); status.textContent = '座號／編號和姓名都要填（班級選填）。'; return; }
     Store.set('me', p);
     btn.disabled = true; status.textContent = '連線中…';
     try { await joinRoom(c, p); } catch (err) { status.textContent = err.message; btn.disabled = false; }
@@ -3639,7 +3831,7 @@ function clientWaiting(cl) {
   const seats = lb ? lb.seats.map((st, i) => h('div', { class: `seatrow kind-${st.kind}` + (i === cl.seat ? ' me' : ''), style: `--pc:${PLAYER_COLORS[i]}` },
     h('span', { class: 'seatno' }, meta && meta.id === 'king' ? TEAM_NAMES[i] : `${i + 1}`),
     h('div', { class: 'seatbody' },
-      st.kind === 'empty' ? h('span', { class: 'seat-empty' }, '空位') : h('b', { class: 'seat-name' }, `${st.cls ? st.cls + '班 ' : ''}${st.no ? st.no + '號 ' : ''}${st.name || (st.kind === 'ai' ? '電腦' : '同學')}`),
+      st.kind === 'empty' ? h('span', { class: 'seat-empty' }, '空位') : h('b', { class: 'seat-name' }, `${st.cls ? st.cls + ' ' : ''}${st.no ? st.no + '號 ' : ''}${st.name || (st.kind === 'ai' ? '電腦' : '玩家')}`),
       st.kind === 'ai' ? h('em', { class: 'kind ai' }, `電腦·${LEVELS[st.level]}`) : st.kind === 'human' ? h('em', { class: 'kind human' }, st.host ? '主持人' : i === cl.seat ? '你' : '真人') : null))) : [];
   App.root.replaceChildren(h('div', { class: `setup s-${meta ? meta.series : 'treasure'}` },
     h('header', { class: `gbar s-${meta ? meta.series : 'treasure'}` }, h('button', { class: 'gbtn back', onclick: () => { location.hash = ''; } }, '‹ 離開'),
