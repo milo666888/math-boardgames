@@ -1822,7 +1822,8 @@ function winnerTitle(s, ranked) {
    抽鬼牌類：抓鬼特工（紅配綠）、抽卡PK賽（數值相同）
    節奏：輪流抽牌（有限時），抽完立刻換下一位；配對隨時可以出，
    只有「正被抽牌的人」這段時間不能出。輪到自己抽牌時可以先出對子再抽
-  （兩人局每一輪都是一個抽、一個被抽，若抽牌者也不能出，就永遠丟不出去）
+  （兩人局每一輪都是一個抽、一個被抽，若抽牌者也不能出，就永遠丟不出去）；
+   抽完另給 5 秒出對子（不論有沒有對子都給，才不會變成提示），再換下一位
    ============================================================ */
 function oldMaidDef(k) {
   const pairOK = (a, b) => k.canPair(C(a), C(b));
@@ -1872,6 +1873,18 @@ function oldMaidDef(k) {
     const why = overReason(s);
     if (why) finish(s, why);
   }
+  const AFTER_MS = 5000;
+  /* 真人抽完牌：給 5 秒把對子出掉；這段時間沒有人被抽牌，其他真人也可以出 */
+  function openAfter(s, seat) {
+    s.wait = [{ seat, kind: 'afterdraw', optional: true }];
+    s.seats.forEach((st, i) => {
+      if (i === seat || !s.hands[i].length) return;
+      if (isBot(st)) autoAll(s, i);
+      else s.wait.push({ seat: i, kind: 'free' });
+    });
+    const why = overReason(s);
+    if (why) finish(s, why);
+  }
   function endTurn(s) {
     s.idle = s.total === s.lastTotal ? s.idle + 1 : 0;
     s.lastTotal = s.total;
@@ -1885,8 +1898,8 @@ function oldMaidDef(k) {
   return defineGame({
     id: k.id,
     thinkMs: (s, w) => (w.kind === 'draw' ? 900 : 250),
-    /* 開局整理手牌給每手限時的 4 倍；隨時配對不限時 */
-    limitMs: (s, w) => (w.kind === 'free' ? 0 : w.kind === 'prepair' ? s.limit * 4000 : null),
+    /* 開局整理手牌給每手限時的 4 倍；隨時配對不限時；抽完出對子固定 5 秒 */
+    limitMs: (s, w) => (w.kind === 'free' ? 0 : w.kind === 'prepair' ? s.limit * 4000 : w.kind === 'afterdraw' ? AFTER_MS : null),
     init(cfg) {
       const seats = makeSeats(cfg.seats);
       const n = seats.length;
@@ -1964,7 +1977,25 @@ function oldMaidDef(k) {
           s.show = { type: 'drawn', seat, from, card };
           sayS(s, meta.timeout ? `⏰ ${L(s, seat)} 超時，系統幫他從 ${L(s, from)} 隨機抽了一張。` : `${L(s, seat)} 從 ${L(s, from)} 抽了一張牌。`, meta.timeout ? 'bad' : '');
         }
+        if (!meta.bot && !meta.timeout && s.hands[seat].length) { openAfter(s, seat); return; }
         s.hold = meta.bot ? 1100 : 500;
+        endTurn(s);
+        return;
+      }
+      if (w.kind === 'afterdraw') {
+        if (a.type === 'pair') {
+          if (!s.hands[seat].includes(a.a) || !s.hands[seat].includes(a.b) || a.a === a.b) return { err: '請選自己手上的兩張牌。' };
+          if (!pairOK(a.a, a.b)) return { err: k.notWhy(C(a.a), C(a.b)) };
+          pairUp(s, seat, a.a, a.b);
+          sayS(s, `${L(s, seat)} 配對成功：${k.pairWhy(C(a.a), C(a.b))}`, 'ok');
+          const why = overReason(s);
+          if (why) { finish(s, why); return; }
+          if (!s.hands[seat].length) { s.wait = []; s.hold = 800; endTurn(s); }
+          return;
+        }
+        if (a.type === 'autoall') autoAll(s, seat);
+        else if (a.type !== 'pass') return { err: '無法執行這個動作。' };
+        s.wait = []; s.hold = 300;
         endTurn(s);
         return;
       }
@@ -1976,6 +2007,7 @@ function oldMaidDef(k) {
     },
     timeout(s, seat, w) {
       if (w.kind === 'draw') return { type: 'draw', index: rand(s.hands[w.from].length) };
+      if (w.kind === 'afterdraw') return { type: 'pass' };
       if (w.kind === 'prepair') return { type: 'done' };
       return { type: 'autoall' };
     },
@@ -1994,7 +2026,8 @@ function oldMaidDef(k) {
         center = h('div', { class: 'showcase' }, h('div', { class: 'pairshow' }, cardEl(C(s.show.a)), h('span', { class: 'eq' }, '='), cardEl(C(s.show.b))),
           h('p', { class: 'why', html: `${L(s, s.show.seat)}：${k.pairWhy(C(s.show.a), C(s.show.b))}` }));
       } else if (s.show.type === 'drawn' && s.show.seat === me) {
-        center = h('div', { class: 'showcase' }, cardEl(C(s.show.card), { size: 'lg' }), h('p', { class: 'why', html: `你抽到 ${cardInline(C(s.show.card))}` }));
+        center = h('div', { class: 'showcase' }, cardEl(C(s.show.card), { size: 'lg' }), h('p', { class: 'why', html: `你抽到 ${cardInline(C(s.show.card))}` }),
+          w && w.kind === 'afterdraw' ? h('p', { class: 'muted' }, '有對子就點兩張牌出掉；好了按「換下一位」，5 秒後也會自動換人。') : null);
       } else if (s.show.type === 'drawn' || s.show.type === 'drew') {
         center = h('div', { class: 'showcase' }, h('p', { class: 'why' }, `${L(s, s.show.seat)} 從 ${L(s, s.show.from)} 抽了一張牌`));
       } else if (s.phase === 'prepair') {
@@ -2009,7 +2042,7 @@ function oldMaidDef(k) {
           h('div', { class: 'pile-pair' }, s.lastPair ? s.lastPair.map(id => cardEl(C(id), { size: 'sm' })) : h('span', { class: 'pile-empty' }, '配對成功的牌放這裡')),
           h('small', {}, `桌面上已配對 ${s.total} 組`)),
         s.aside ? h('div', { class: 'aside' }, cardEl(null, { back: true, deck: k.deck, size: 'sm' }), h('small', {}, '開局抽出、不使用的牌')) : null);
-      const canPair = w && (w.kind === 'free' || w.kind === 'prepair' || w.kind === 'draw');
+      const canPair = w && (w.kind === 'free' || w.kind === 'prepair' || w.kind === 'draw' || w.kind === 'afterdraw');
       const onCard = canPair ? id => {
         if (id === k.loser) { v.note(k.loserMsg, 'bad'); return; }
         ui.sel = ui.sel.includes(id) ? ui.sel.filter(x => x !== id) : [...ui.sel, id];
@@ -2025,7 +2058,8 @@ function oldMaidDef(k) {
         meLine = `${s.hands[me].length} 張 · 配對 ${s.pairs[me]} 組`;
         if (!s.over && s.phase === 'prepair') meLine += w ? ' · <b>整理手牌中</b>' : ' · 整理好了，等其他人';
         else if (!s.over) {
-          if (s.turn === me) meLine += ' · <b>輪到你抽牌</b>（可以先出對子）';
+          if (w && w.kind === 'afterdraw') meLine += ' · <b>抽完了：有對子就出</b>';
+          else if (s.turn === me) meLine += ' · <b>輪到你抽牌</b>（可以先出對子）';
           else if (s.target === me) meLine += ` · <b>${L(s, s.turn)} 正在從你手上抽牌</b>`;
           else if (canPair) meLine += ' · 可以配對';
         }
@@ -2034,7 +2068,8 @@ function oldMaidDef(k) {
       cardFrame(v, s, {
         seatLine: i => `${s.hands[i].length} 張 · 配對 ${s.pairs[i]} 組${!s.over && s.turn === i ? ' · 抽牌中' : ''}`,
         meLine, center: [center, side], hand,
-        actions: w && w.kind === 'prepair' ? [{ label: '整理好了，開始抽牌', primary: true, onClick: () => v.send({ type: 'done' }) }] : [],
+        actions: w && w.kind === 'prepair' ? [{ label: '整理好了，開始抽牌', primary: true, onClick: () => v.send({ type: 'done' }) }]
+          : w && w.kind === 'afterdraw' ? [{ label: '好了，換下一位', primary: true, onClick: () => v.send({ type: 'pass' }) }] : [],
       });
     },
   });
@@ -2911,8 +2946,8 @@ const RULES = {
     steps: [
       '紅色數字牌和綠色指數牌的數值相同就是一對，例如 32 和 2<sup>5</sup>。',
       '開局先整理手牌，把成對的牌打出來。',
-      '輪流從下一位的手上抽一張牌，抽到能配對的就打出來。',
-      '除了正被別人抽牌的時候，隨時都可以出對子；輪到自己時可以先出對子再抽牌。',
+      '輪流從下一位的手上抽一張牌；抽完有 5 秒可以把對子打出來，再換下一位。',
+      '除了正被別人抽牌的時候，隨時都可以出對子。',
     ],
     win: '手牌出完就安全；最後留著鬼牌的人輸。',
   },
@@ -2931,8 +2966,8 @@ const RULES = {
     steps: [
       `數值相同的兩張牌就是一對，例如 ${trigHTML('sin', 30)} 和 ${trigHTML('cos', 60)}，或 ${trigHTML('cos', 60)} 和 ${exHTML(ex(1, 1, 1, 2))}。`,
       '開局先整理手牌，點兩張成對的牌打出來。',
-      '輪流從下一位的手上抽一張牌，抽到能配對的就打出來。',
-      '除了正被別人抽牌的時候，隨時都可以出對子；輪到自己時可以先出對子再抽牌。',
+      '輪流從下一位的手上抽一張牌；抽完有 5 秒可以把對子打出來，再換下一位。',
+      '除了正被別人抽牌的時候，隨時都可以出對子。',
     ],
     win: '最後拿著說明卡的人輸。',
   },
@@ -3008,13 +3043,13 @@ const optTime = (list, def) => ({ key: 'time', label: '整局時間', def: Strin
 /* 每手限時：依遊戲難度給建議值（秒） */
 const META = [
   { id: 'ghost', series: 'ghost', name: '抓鬼特工', tag: '類似抽鬼牌', seats: [2, 4], def: 3, limit: 15, limits: [10, 15, 20, 30],
-    limitNote: '每一手＝抽一張牌（可以先出對子再抽）。開局整理手牌給 4 倍時間。', blurb: '紅色數字牌配綠色指數牌，最後別讓鬼牌留在手上。',
+    limitNote: '每一手＝抽一張牌；抽完另有 5 秒出對子。開局整理手牌給 4 倍時間。', blurb: '紅色數字牌配綠色指數牌，最後別讓鬼牌留在手上。',
     art: () => [ghostMini({ color: 'red', value: 32 }), ghostMini({ color: 'green', base: 2, exp: 5, value: 32 })], opts: [optTime([5, 8, 10, 15], 8)] },
   { id: 'green', series: 'ghost', name: '綠色能源', tag: '類似撿紅點', seats: [2, 4], def: 2, limit: 20, limits: [15, 20, 30, 45],
     limitNote: '每出一張牌、每次挑翻開牌的配對，都重新計時。', blurb: '和海底牌配對、收回綠色指數牌，底數就是分數。',
     art: () => [ghostMini({ color: 'green', base: 3, exp: 4, value: 81 }), ghostMini({ color: 'red', value: 81 })], opts: [optTime([5, 10, 15, 20], 10)] },
   { id: 'drawpk', series: 'treasure', name: '抽卡PK賽', tag: '類似抽鬼牌', seats: [2, 4], def: 2, limit: 20, limits: [15, 20, 30, 45],
-    limitNote: '每一手＝抽一張牌（可以先出對子再抽）。開局整理手牌給 4 倍時間。', blurb: '數值相同就能配對，最後拿著說明卡的人輸。',
+    limitNote: '每一手＝抽一張牌；抽完另有 5 秒出對子。開局整理手牌給 4 倍時間。', blurb: '數值相同就能配對，最後拿著說明卡的人輸。',
     art: () => [trMini('H2'), trMini('S2')], opts: [optTime([5, 8, 10, 15], 8)] },
   { id: 'pairpk', series: 'treasure', name: '配對PK賽', tag: '類似撿紅點', seats: [2, 6], def: 4, limit: 25, limits: [15, 25, 40, 60],
     limitNote: '每出一張牌、每次挑翻開牌的配對，都重新計時。', blurb: '出牌、翻牌，和桌面上數值相同的牌配對，配對組數多者勝。',
