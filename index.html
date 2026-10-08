@@ -590,6 +590,12 @@ table.ref .muted { color: #9a9284; font-size: .85rem; }
 .welcome { max-width: 860px; min-height: 100vh; align-content: center; }
 .welcome-q { margin: 0; color: var(--text-2); font-size: 1.1rem; }
 .roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; }
+/* 回到遊戲：次要的細列，不搶兩張身分卡的焦點 */
+.ret-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 14px; border-radius: 12px; border: 1px dashed var(--line); color: var(--text-2); font-size: .92rem; }
+.ret-label { color: var(--text-3); letter-spacing: .08em; }
+.ret-item { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.ret-item > span { color: var(--text); }
+.linkbtn { background: none; border: 0; padding: 2px 4px; color: var(--text-3); font: inherit; font-size: .85rem; text-decoration: underline; cursor: pointer; }
 .rolecard { display: grid; gap: 10px; align-content: start; text-align: left; padding: 22px; border-radius: 18px; border: 2px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer; font: inherit; transition: border-color .15s, transform .15s; }
 .rolecard:hover, .rolecard:focus-visible { border-color: var(--gold); transform: translateY(-2px); outline: none; }
 .rolecard b { font-family: var(--font-display); font-weight: 400; font-size: 1.8rem; color: var(--gold-2); }
@@ -3295,14 +3301,27 @@ function showWelcome() {
   SS.set('inRoom', null); SS.set('hosting', null);
   const card = (role, title, lines) => h('button', { type: 'button', class: 'rolecard', onclick: () => setRole(role) },
     h('b', {}, title), h('ul', {}, lines.map(t => h('li', {}, t))));
+  /* 回到遊戲：次要入口，放在兩張身分卡下方的一條細列（主持人或玩家都適用） */
+  const hs = hostSave(), lr = lastRoom();
+  const items = [];
+  if (hs) items.push(h('span', { class: 'ret-item' },
+    h('span', {}, `你主持的遊戲室 ${hs.code}（${metaOf(hs.id).name}${hs.phase === 'game' && hs.game && hs.game.state && !hs.game.state.over ? '，遊戲進行中' : ''}）`),
+    h('button', { class: 'btn ghost small', type: 'button', onclick: () => { SS.set('role', hs.role || 'teacher'); restoreHost(hs); } }, '回到遊戲室'),
+    h('button', { class: 'linkbtn', type: 'button', onclick: () => { forgetHost(); showWelcome(); } }, '不用了')));
+  if (lr && !(hs && hs.code === lr.code)) items.push(h('span', { class: 'ret-item' },
+    h('span', {}, `遊戲室 ${lr.code}（${lr.no} 號）`),
+    h('button', { class: 'btn ghost small', type: 'button', onclick: () => { SS.set('role', 'student'); quickJoin(lr.code, lr.no); } }, '回到遊戲'),
+    h('button', { class: 'linkbtn', type: 'button', onclick: () => { forgetRoom(); showWelcome(); } }, '不用了')));
+  const back = h('div', { class: 'ret-bar' }, h('span', { class: 'ret-label' }, '回到遊戲'),
+    items.length ? items : h('span', { class: 'muted' }, '這台裝置目前沒有進行中的遊戲'));
   App.root.append(h('div', { class: 'hub welcome' },
     h('div', { class: 'hub-title' }, h('h1', {}, '數學桌遊館')),
-    ...rejoinBanners(),
-    h('p', { class: 'welcome-q' }, '你是？'),
     h('div', { class: 'roles' },
       card('teacher', '我是主持人', ['投影遊戲規則給大家看', '播放電腦示範對局', '開設遊戲室，玩家輸入房號或掃 QR code 加入']),
-      card('student', '我是玩家', ['輸入房號和座號就能加入遊戲', '不小心離開，也能一鍵回到遊戲']))));
+      card('student', '我是玩家', ['輸入房號和座號就能加入遊戲'])),
+    back));
 }
+
 
 /* 玩家加入：房號＋座號，按一下就連 */
 function joinFields(code, onDone) {
